@@ -28,8 +28,7 @@ jobs:
           key: pr-archaeologist-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: pr-archaeologist-${{ github.ref_name }}-
 
-      # Replace with wherever you host pr-archaeologist.
-      - run: pip install "git+${{ vars.PR_ARCHAEOLOGIST_SOURCE }}"
+      - run: pip install "git+https://github.com/TwoMuchLabs/pr-archaeologist"
 
       - run: pr-archaeologist dig
 

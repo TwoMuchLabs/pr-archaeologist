@@ -13,7 +13,7 @@ shaped it. It writes:
 - **`pr-archaeologist explain <path>`**: a concise terminal timeline of why a module exists and
   what bit people before.
 
-It has no dependencies beyond Python 3.9+ and the `git` binary, makes no network calls, and uses no
+It has no dependencies beyond Python 3.10+ and the `git` binary, makes no network calls, and uses no
 LLM. A nightly run only analyses commits added since the previous run.
 
 ![The interactive graph with payments/retry.py selected](docs/graph.png)
@@ -21,8 +21,8 @@ LLM. A nightly run only analyses commits added since the previous run.
 ## Quick start
 
 ```bash
-git clone <this repository> && cd pr-archaeologist
-pipx install .            # or: pip install .
+pipx install git+https://github.com/TwoMuchLabs/pr-archaeologist
+# or: pip install git+https://github.com/TwoMuchLabs/pr-archaeologist
 
 cd /path/to/your/repo
 pr-archaeologist dig                      # first run reads the full history
@@ -30,12 +30,13 @@ pr-archaeologist explain src/billing/retry.py
 open archaeology-graph.html
 ```
 
-Not on PyPI yet; install from a clone.
+Not on PyPI yet, so it installs straight from GitHub.
 
 To try it without a repo of your own, build the bundled demo (a fictional billing service with five
 years of history):
 
 ```bash
+git clone https://github.com/TwoMuchLabs/pr-archaeologist && cd pr-archaeologist
 python examples/make_demo_repo.py /tmp/ledgerline
 pr-archaeologist dig --repo /tmp/ledgerline
 pr-archaeologist explain payments/retry.py --repo /tmp/ledgerline
