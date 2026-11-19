@@ -1,0 +1,3 @@
+# Refresh the archaeology index at 02:17 every night and commit it if it changed.
+# m  h  dom mon dow  command
+17 2 * * * ARCHAEOLOGIST_PULL=1 ARCHAEOLOGIST_COMMIT=1 /opt/pr-archaeologist/agent/nightly.sh /srv/repos/my-service >> /var/log/pr-archaeologist.log 2>&1

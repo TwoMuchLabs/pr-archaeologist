@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pr-archaeologist"
+version = "0.1.0"
+description = "Reconstruct the historical 'why' behind legacy codebases from git history, blame and ADRs."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["git", "legacy-code", "knowledge-graph", "adr", "ai-agents", "code-archaeology"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Version Control :: Git",
+]
+# Deliberately empty: the tool runs on the Python standard library plus the git binary.
+dependencies = []
+
+[project.scripts]
+pr-archaeologist = "pr_archaeologist.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pr_archaeologist = ["graph_template.html"]

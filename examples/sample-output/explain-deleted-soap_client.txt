@@ -1,0 +1,13 @@
+legacy/soap_client.py  (deleted)
+STABLE 11/100 · 2 commits · 1 author · 2019-03-04 → 2021-07-19
+Removed 2021-07-19 82e231c: Remove legacy SOAP client
+    The last merchant on the SOAP gateway migrated in June, so this code path is dead.
+
+WHY IT EXISTS
+  2019-03-04 0ee789d  Initial import of billing service — Maya Okafor
+      Extracted from the storefront monolith so that billing can deploy independently of the
+      storefront release train.
+
+TIMELINE
+  2019-03-04 ◆ 0ee789d born     Initial import of billing service
+  2021-07-19 · 82e231c deleted  Remove legacy SOAP client #90

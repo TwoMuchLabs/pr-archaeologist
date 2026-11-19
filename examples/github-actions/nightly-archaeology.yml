@@ -1,0 +1,46 @@
+# Copy to .github/workflows/nightly-archaeology.yml in the repository you want analysed.
+name: Nightly archaeology
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dig:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history: the tool reads git log and blame
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The cache makes each run incremental: only commits since the last run are parsed.
+      - uses: actions/cache@v4
+        with:
+          path: .pr-archaeologist
+          key: pr-archaeologist-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: pr-archaeologist-${{ github.ref_name }}-
+
+      # Replace with wherever you host pr-archaeologist.
+      - run: pip install "git+${{ vars.PR_ARCHAEOLOGIST_SOURCE }}"
+
+      - run: pr-archaeologist dig
+
+      - name: Commit refreshed outputs
+        run: |
+          git config user.name "pr-archaeologist"
+          git config user.email "pr-archaeologist@users.noreply.github.com"
+          git add CODEBASE_ARCHAEOLOGY.md archaeology-graph.html
+          git diff --cached --quiet || (git commit -m "chore(archaeology): refresh codebase archaeology" && git push)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archaeology-graph
+          path: archaeology-graph.html

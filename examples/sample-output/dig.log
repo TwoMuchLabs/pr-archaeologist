@@ -1,0 +1,4 @@
+  blaming 12 changed file(s), 0 cached
+pr-archaeologist: full run, 24 new commit(s) (24 total), 12 file(s) blamed (0 cached), 5 doc(s) parsed, 0.1s
+  files: 2 fragile, 2 caution, 13 stable
+  wrote: CODEBASE_ARCHAEOLOGY.md, archaeology-graph.html

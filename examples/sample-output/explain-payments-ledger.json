@@ -1,0 +1,536 @@
+{
+ "path": "payments/ledger.py",
+ "status": "live",
+ "deleted": null,
+ "previous": [
+  "payments/books.py"
+ ],
+ "commits": 6,
+ "fixes": 3,
+ "reverts": 0,
+ "security": 0,
+ "churn": 30,
+ "lines": 26,
+ "authors": [
+  "Lena Fischer",
+  "Tomás Reyes",
+  "Maya Okafor",
+  "Dev Patel"
+ ],
+ "author_count": 4,
+ "first": "2019-03-04",
+ "last": "2023-05-09",
+ "score": 57,
+ "level": "caution",
+ "reasons": [
+  "3 bug fixes",
+  "4 authors"
+ ],
+ "intent": [
+  {
+   "source": "commit",
+   "ref": "0ee789d",
+   "date": "2019-03-04",
+   "author": "Maya Okafor",
+   "text": "Initial import of billing service",
+   "why": [
+    "Extracted from the storefront monolith so that billing can deploy independently of the storefront release train."
+   ]
+  },
+  {
+   "source": "commit",
+   "ref": "76fec1a",
+   "date": "2020-02-24",
+   "author": "Lena Fischer",
+   "text": "Adopt integer minor units everywhere (ADR-0003)",
+   "why": [
+    "We decided to convert once at the API boundary rather than in every module that touches money."
+   ]
+  }
+ ],
+ "docs": [
+  {
+   "path": "docs/adr/0003-integer-minor-units.md",
+   "kind": "adr",
+   "label": "ADR-0003",
+   "title": "Money is integer minor units",
+   "status": "Accepted",
+   "date": "2020-02-24",
+   "context": "Float arithmetic in the ledger accumulated a 37 EUR mismatch against settlement in January 2020.",
+   "decision": "All amounts are stored and computed as integer minor units. Conversion happens once, at the API boundary, in `payments/currency.py`.",
+   "consequences": "Never introduce a float amount into `payments/ledger.py`. Currencies without minor units (JPY) must go through the `MINOR_UNITS` table."
+  }
+ ],
+ "timeline": [
+  {
+   "sha": "0ee789d65e9cb79b341a688aa2bf0037050fd07a",
+   "short": "0ee789d",
+   "date": "2019-03-04",
+   "author": "Maya Okafor",
+   "kind": "design",
+   "tags": [],
+   "subject": "Initial import of billing service",
+   "title": "Initial import of billing service",
+   "why": [
+    "Extracted from the storefront monolith so that billing can deploy independently of the storefront release train."
+   ],
+   "lead": "Extracted from the storefront monolith so that billing can deploy independently of the storefront release train.",
+   "warn": [],
+   "prs": [],
+   "issues": [],
+   "tickets": [],
+   "reverts": null,
+   "reverted_by": null,
+   "note": "born",
+   "delta": [
+    11,
+    0
+   ]
+  },
+  {
+   "sha": "6b97149d99ef8670960d85486cca94e64b5142cf",
+   "short": "6b97149",
+   "date": "2020-02-10",
+   "author": "Lena Fischer",
+   "kind": "fix",
+   "tags": [],
+   "subject": "fix: rounding drift in multi-currency totals (#57)",
+   "title": "rounding drift in multi-currency totals",
+   "why": [
+    "Because of this, totals are now summed in minor units."
+   ],
+   "lead": "Floats lose cents: errors accumulated to a 37 EUR mismatch against settlement in January.",
+   "warn": [],
+   "prs": [
+    57
+   ],
+   "issues": [],
+   "tickets": [],
+   "reverts": null,
+   "reverted_by": null,
+   "note": null,
+   "delta": [
+    1,
+    1
+   ]
+  },
+  {
+   "sha": "76fec1a0784c80f3dbfd0cf242916ad4ac9bf93d",
+   "short": "76fec1a",
+   "date": "2020-02-24",
+   "author": "Lena Fischer",
+   "kind": "design",
+   "tags": [],
+   "subject": "Adopt integer minor units everywhere (ADR-0003) (#58)",
+   "title": "Adopt integer minor units everywhere (ADR-0003)",
+   "why": [
+    "We decided to convert once at the API boundary rather than in every module that touches money."
+   ],
+   "lead": "We decided to convert once at the API boundary rather than in every module that touches money.",
+   "warn": [],
+   "prs": [
+    58
+   ],
+   "issues": [],
+   "tickets": [],
+   "reverts": null,
+   "reverted_by": null,
+   "note": null,
+   "delta": [
+    1,
+    1
+   ]
+  },
+  {
+   "sha": "af58680fa08455010b291013d47c70b4c8dd4a62",
+   "short": "af58680",
+   "date": "2020-06-02",
+   "author": "Tomás Reyes",
+   "kind": "refactor",
+   "tags": [],
+   "subject": "refactor: rename books module to ledger (#63)",
+   "title": "rename books module to ledger",
+   "why": [],
+   "lead": "\"books\" confused every new joiner; accounting calls it the ledger.",
+   "warn": [],
+   "prs": [
+    63
+   ],
+   "issues": [],
+   "tickets": [],
+   "reverts": null,
+   "reverted_by": null,
+   "note": "renamed from payments/books.py",
+   "delta": [
+    0,
+    0
+   ]
+  },
+  {
+   "sha": "02ec589c899cce158ec1c12702c1cf9f3d56cfd1",
+   "short": "02ec589",
+   "date": "2021-01-20",
+   "author": "Dev Patel",
+   "kind": "fix",
+   "tags": [],
+   "subject": "fix: reconcile worker skipped refunds (#80)",
+   "title": "reconcile worker skipped refunds",
+   "why": [
+    "Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day."
+   ],
+   "lead": "Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day.",
+   "warn": [],
+   "prs": [
+    80
+   ],
+   "issues": [],
+   "tickets": [],
+   "reverts": null,
+   "reverted_by": null,
+   "note": null,
+   "delta": [
+    5,
+    0
+   ]
+  },
+  {
+   "sha": "82b8ab05aef1d4d629c0ac3af9d4d06fa93569dd",
+   "short": "82b8ab0",
+   "date": "2023-05-09",
+   "author": "Tomás Reyes",
+   "kind": "fix",
+   "tags": [],
+   "subject": "fix: race between webhook and retry loop recording a charge twice (#123)",
+   "title": "race between webhook and retry loop recording a charge twice",
+   "why": [
+    "The webhook and the retry loop could both write the same charge to the ledger."
+   ],
+   "lead": "The webhook and the retry loop could both write the same charge to the ledger.",
+   "warn": [
+    "Always use record_once() for charges; record() is for manual adjustments only."
+   ],
+   "prs": [
+    123
+   ],
+   "issues": [],
+   "tickets": [],
+   "reverts": null,
+   "reverted_by": null,
+   "note": null,
+   "delta": [
+    10,
+    0
+   ]
+  }
+ ],
+ "pitfalls": [
+  {
+   "kind": "fix",
+   "date": "2020-02-10",
+   "ref": "6b97149",
+   "text": "rounding drift in multi-currency totals — Because of this, totals are now summed in minor units."
+  },
+  {
+   "kind": "fix",
+   "date": "2021-01-20",
+   "ref": "02ec589",
+   "text": "reconcile worker skipped refunds — Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day."
+  },
+  {
+   "kind": "fix",
+   "date": "2023-05-09",
+   "ref": "82b8ab0",
+   "text": "race between webhook and retry loop recording a charge twice — The webhook and the retry loop could both write the same charge to the ledger."
+  },
+  {
+   "kind": "warning",
+   "date": "2023-05-09",
+   "ref": "82b8ab0",
+   "text": "Always use record_once() for charges; record() is for manual adjustments only."
+  },
+  {
+   "kind": "decision",
+   "date": "2020-02-24",
+   "ref": "ADR-0003",
+   "text": "Money is integer minor units: Never introduce a float amount into `payments/ledger.py`. Currencies without minor units (JPY) must go through the `MINOR_UNITS` table."
+  }
+ ],
+ "coupled": [
+  {
+   "path": "api/handlers.py",
+   "count": 2,
+   "of": 6,
+   "ratio": 0.33
+  },
+  {
+   "path": "payments/currency.py",
+   "count": 2,
+   "of": 6,
+   "ratio": 0.33
+  },
+  {
+   "path": "workers/reconcile.py",
+   "count": 2,
+   "of": 6,
+   "ratio": 0.33
+  }
+ ],
+ "symbols": [
+  {
+   "name": "record",
+   "kind": "function",
+   "start": 7,
+   "end": 8,
+   "container": false,
+   "origin": {
+    "sha": "0ee789d65e9cb79b341a688aa2bf0037050fd07a",
+    "short": "0ee789d",
+    "date": "2019-03-04",
+    "author": "Maya Okafor",
+    "kind": "design",
+    "tags": [],
+    "subject": "Initial import of billing service",
+    "title": "Initial import of billing service",
+    "why": [
+     "Extracted from the storefront monolith so that billing can deploy independently of the storefront release train."
+    ],
+    "lead": "Extracted from the storefront monolith so that billing can deploy independently of the storefront release train.",
+    "warn": [],
+    "prs": [],
+    "issues": [],
+    "tickets": [],
+    "reverts": null,
+    "reverted_by": null
+   },
+   "last": {
+    "sha": "76fec1a0784c80f3dbfd0cf242916ad4ac9bf93d",
+    "short": "76fec1a",
+    "date": "2020-02-24",
+    "author": "Lena Fischer",
+    "kind": "design",
+    "tags": [],
+    "subject": "Adopt integer minor units everywhere (ADR-0003) (#58)",
+    "title": "Adopt integer minor units everywhere (ADR-0003)",
+    "why": [
+     "We decided to convert once at the API boundary rather than in every module that touches money."
+    ],
+    "lead": "We decided to convert once at the API boundary rather than in every module that touches money.",
+    "warn": [],
+    "prs": [
+     58
+    ],
+    "issues": [],
+    "tickets": [],
+    "reverts": null,
+    "reverted_by": null
+   },
+   "fixes": []
+  },
+  {
+   "name": "total",
+   "kind": "function",
+   "start": 11,
+   "end": 12,
+   "container": false,
+   "origin": {
+    "sha": "0ee789d65e9cb79b341a688aa2bf0037050fd07a",
+    "short": "0ee789d",
+    "date": "2019-03-04",
+    "author": "Maya Okafor",
+    "kind": "design",
+    "tags": [],
+    "subject": "Initial import of billing service",
+    "title": "Initial import of billing service",
+    "why": [
+     "Extracted from the storefront monolith so that billing can deploy independently of the storefront release train."
+    ],
+    "lead": "Extracted from the storefront monolith so that billing can deploy independently of the storefront release train.",
+    "warn": [],
+    "prs": [],
+    "issues": [],
+    "tickets": [],
+    "reverts": null,
+    "reverted_by": null
+   },
+   "last": {
+    "sha": "6b97149d99ef8670960d85486cca94e64b5142cf",
+    "short": "6b97149",
+    "date": "2020-02-10",
+    "author": "Lena Fischer",
+    "kind": "fix",
+    "tags": [],
+    "subject": "fix: rounding drift in multi-currency totals (#57)",
+    "title": "rounding drift in multi-currency totals",
+    "why": [
+     "Because of this, totals are now summed in minor units."
+    ],
+    "lead": "Floats lose cents: errors accumulated to a 37 EUR mismatch against settlement in January.",
+    "warn": [],
+    "prs": [
+     57
+    ],
+    "issues": [],
+    "tickets": [],
+    "reverts": null,
+    "reverted_by": null
+   },
+   "fixes": [
+    {
+     "short": "6b97149",
+     "date": "2020-02-10",
+     "kind": "fix",
+     "title": "rounding drift in multi-currency totals",
+     "why": [
+      "Because of this, totals are now summed in minor units."
+     ]
+    },
+    {
+     "short": "02ec589",
+     "date": "2021-01-20",
+     "kind": "fix",
+     "title": "reconcile worker skipped refunds",
+     "why": [
+      "Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day."
+     ]
+    }
+   ]
+  },
+  {
+   "name": "entries",
+   "kind": "function",
+   "start": 15,
+   "end": 17,
+   "container": false,
+   "origin": {
+    "sha": "02ec589c899cce158ec1c12702c1cf9f3d56cfd1",
+    "short": "02ec589",
+    "date": "2021-01-20",
+    "author": "Dev Patel",
+    "kind": "fix",
+    "tags": [],
+    "subject": "fix: reconcile worker skipped refunds (#80)",
+    "title": "reconcile worker skipped refunds",
+    "why": [
+     "Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day."
+    ],
+    "lead": "Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day.",
+    "warn": [],
+    "prs": [
+     80
+    ],
+    "issues": [],
+    "tickets": [],
+    "reverts": null,
+    "reverted_by": null
+   },
+   "last": {
+    "sha": "02ec589c899cce158ec1c12702c1cf9f3d56cfd1",
+    "short": "02ec589",
+    "date": "2021-01-20",
+    "author": "Dev Patel",
+    "kind": "fix",
+    "tags": [],
+    "subject": "fix: reconcile worker skipped refunds (#80)",
+    "title": "reconcile worker skipped refunds",
+    "why": [
+     "Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day."
+    ],
+    "lead": "Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day.",
+    "warn": [],
+    "prs": [
+     80
+    ],
+    "issues": [],
+    "tickets": [],
+    "reverts": null,
+    "reverted_by": null
+   },
+   "fixes": [
+    {
+     "short": "02ec589",
+     "date": "2021-01-20",
+     "kind": "fix",
+     "title": "reconcile worker skipped refunds",
+     "why": [
+      "Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day."
+     ]
+    },
+    {
+     "short": "82b8ab0",
+     "date": "2023-05-09",
+     "kind": "fix",
+     "title": "race between webhook and retry loop recording a charge twice",
+     "why": [
+      "The webhook and the retry loop could both write the same charge to the ledger."
+     ]
+    }
+   ]
+  },
+  {
+   "name": "record_once",
+   "kind": "function",
+   "start": 20,
+   "end": 26,
+   "container": false,
+   "origin": {
+    "sha": "82b8ab05aef1d4d629c0ac3af9d4d06fa93569dd",
+    "short": "82b8ab0",
+    "date": "2023-05-09",
+    "author": "Tomás Reyes",
+    "kind": "fix",
+    "tags": [],
+    "subject": "fix: race between webhook and retry loop recording a charge twice (#123)",
+    "title": "race between webhook and retry loop recording a charge twice",
+    "why": [
+     "The webhook and the retry loop could both write the same charge to the ledger."
+    ],
+    "lead": "The webhook and the retry loop could both write the same charge to the ledger.",
+    "warn": [
+     "Always use record_once() for charges; record() is for manual adjustments only."
+    ],
+    "prs": [
+     123
+    ],
+    "issues": [],
+    "tickets": [],
+    "reverts": null,
+    "reverted_by": null
+   },
+   "last": {
+    "sha": "82b8ab05aef1d4d629c0ac3af9d4d06fa93569dd",
+    "short": "82b8ab0",
+    "date": "2023-05-09",
+    "author": "Tomás Reyes",
+    "kind": "fix",
+    "tags": [],
+    "subject": "fix: race between webhook and retry loop recording a charge twice (#123)",
+    "title": "race between webhook and retry loop recording a charge twice",
+    "why": [
+     "The webhook and the retry loop could both write the same charge to the ledger."
+    ],
+    "lead": "The webhook and the retry loop could both write the same charge to the ledger.",
+    "warn": [
+     "Always use record_once() for charges; record() is for manual adjustments only."
+    ],
+    "prs": [
+     123
+    ],
+    "issues": [],
+    "tickets": [],
+    "reverts": null,
+    "reverted_by": null
+   },
+   "fixes": [
+    {
+     "short": "82b8ab0",
+     "date": "2023-05-09",
+     "kind": "fix",
+     "title": "race between webhook and retry loop recording a charge twice",
+     "why": [
+      "The webhook and the retry loop could both write the same charge to the ledger."
+     ]
+    }
+   ]
+  }
+ ]
+}

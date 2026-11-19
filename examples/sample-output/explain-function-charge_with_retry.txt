@@ -1,0 +1,19 @@
+payments/retry.py::charge_with_retry  (function, L21–33)
+  Oldest surviving lines: 2019-03-18 78f3385 Add retry wrapper for gateway timeouts — Maya Okafor
+      Retry up to 3 times with a fixed 200ms delay so that checkout does not surface transient
+      errors to customers.
+  Last touched:           2023-05-09 82b8ab0 race between webhook and retry loop recording a charge twice — Tomás Reyes
+  Fixes and reverts that touched it:
+    2019-04-02 5f2d11e [fix] retry only on timeouts, not on declined cards
+        We were retrying 402 responses, which caused duplicate decline emails.
+    2019-06-11 e3ce84c [fix] double charge when a timed-out request had succeeded
+        Root cause: a timeout does not mean the charge failed.
+    2019-09-03 e8f536b [perf] switch retry to exponential backoff with jitter
+        Backoff with full jitter spreads the load instead of amplifying it.
+    2020-09-17 2fb2215 [revert] Revert "Cache gateway auth token in retry loop (#71)"
+        The cached token expired mid-retry, which caused every attempt after the first to fail
+        with 401 and masked real timeouts.
+    2021-03-08 936a792 [fix] off-by-one in retry budget
+        MAX_ATTEMPTS=3 made 4 calls because the loop counted retries, not attempts.
+    2023-05-09 82b8ab0 [fix] race between webhook and retry loop recording a charge twice
+        The webhook and the retry loop could both write the same charge to the ledger.
