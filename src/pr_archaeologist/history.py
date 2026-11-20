@@ -265,10 +265,10 @@ def update(
         say("cached head is no longer an ancestor of HEAD (history rewritten); rebuilding")
 
     if mode == "full":
-        keep_blame, keep_docs = state.get("blame", {}), state.get("docs", {})
+        keep = {key: state.get(key, {}) for key in ("blame", "docs", "prs")}
         state.clear()
         state.update(cache.empty_state())
-        state["blame"], state["docs"] = keep_blame, keep_docs  # still valid: keyed by content
+        state.update(keep)  # still valid: keyed by content or by pull-request number
         rev = head
     else:
         rev = f"{prior}..{head}"

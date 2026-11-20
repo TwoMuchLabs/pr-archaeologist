@@ -67,10 +67,25 @@ Context / Decision / Consequences sections. A file counts as an ADR if it lives 
 tied to code by the paths they mention (including a file's former names) and by commits that cite
 the ADR number.
 
+## 4b. Pull requests (`prs.py`, optional)
+
+`dig --prs` collects the pull-request numbers found in step 1 and reads each one from the GitHub
+REST API with the standard library: the pull request, then its issue comments, review comments
+and reviews when it has any. The body is stripped of HTML comments, checklists, tables, images and
+code blocks, then split into sentences the same way commit bodies are. Kept: up to three reasons,
+two warnings, and four reviewer remarks that explain or warn. Dropped: bots, and anything about
+the pull request's own paperwork. A number that turns out to be an issue is remembered as missing
+so it is not asked for again. Results live in the cache under `prs`, keyed by number, and survive
+a history rebuild.
+
+In the model, a pull request's warnings attach to every file its commits changed; its reasons and
+review remarks attach only where the commit fixed or undid something. Each is shown once per file.
+
 ## 5. The model (`model.py`)
 
 Per file: intent (birth commit, later redesigns, linked decisions), full timeline, pitfalls,
-co-change partners, function histories and a fragility score:
+co-change partners, function histories, a fragility score and a rank among the repository's scored
+files:
 
 ```text
 weight = 3·fixes* + 6·reverts + 5·security + 2·hotfixes

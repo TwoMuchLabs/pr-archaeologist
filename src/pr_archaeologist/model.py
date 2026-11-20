@@ -56,8 +56,37 @@ def make_ignore(patterns: Iterable[str]) -> Callable[[str], bool]:
     return ignored
 
 
+_PRS: Dict[str, Dict] = {}  # set by build(); pull-request summaries keyed by number
+
+
+def pr_notes(commit: Dict) -> List[Dict]:
+    """What the commit's pull request adds: its reasons, warnings and review remarks."""
+    notes: List[Dict] = []
+    own = set(commit.get("why", [])) | set(commit.get("warn", []))
+    if commit.get("lead"):
+        own.add(commit["lead"])
+    for number in commit.get("prs", []):
+        pr = _PRS.get(str(number))
+        if not pr or pr.get("state") == "missing":
+            continue
+        for text in pr.get("why", [])[:2]:
+            if text not in own:
+                notes.append({"pr": number, "kind": "why", "author": pr.get("author", ""), "text": text})
+        if not pr.get("why") and pr.get("lead") and pr["lead"] not in own:
+            # The opening line says what the pull request is, which helps explain why a file
+            # exists but is not a reason a fix was needed.
+            notes.append({"pr": number, "kind": "lead", "author": pr.get("author", ""), "text": pr["lead"]})
+        for text in pr.get("warn", []):
+            if text not in own:
+                notes.append({"pr": number, "kind": "warn", "author": pr.get("author", ""), "text": text})
+        for item in pr.get("discussion", []):
+            notes.append({"pr": number, "kind": "review", "author": item["author"], "text": item["text"]})
+    return notes[:5]
+
+
 def brief(commit: Dict) -> Dict:
     return {
+        "pr_notes": pr_notes(commit),
         "sha": commit["sha"],
         "short": commit["sha"][:7],
         "date": commit["date"][:10],
@@ -248,6 +277,7 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
         born = timeline[0]
         story = [born["lead"]] if born.get("lead") else []
         story += [w for w in born["why"] if w not in story]
+        story += [f"{n['text']} (PR #{n['pr']})" for n in born["pr_notes"] if n["kind"] in ("why", "lead")]
         intent.append({"source": "commit", "ref": born["short"], "date": born["date"],
                        "author": born["author"], "text": born["title"], "why": story[:2]})
     for event in timeline[1:]:
@@ -258,6 +288,7 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
 
     # Pitfalls: everything a future editor should know went wrong or is easy to get wrong.
     pitfalls = []
+    said = set()  # a pull request with five commits should say its piece once per file
     for event in counted:
         if event["reverted_by"]:
             by = commits_all.get(event["reverted_by"])
@@ -274,6 +305,18 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
             })
         for warning in event["warn"]:
             pitfalls.append({"kind": "warning", "date": event["date"], "ref": event["short"], "text": warning})
+        risky = event["kind"] in RISKY_KINDS or bool(event["reverted_by"])
+        for note in event["pr_notes"]:
+            # A pull request's warnings always matter; its reasons and review remarks only
+            # for the changes that fixed or undid something.
+            if (note["pr"], note["text"]) in said:
+                continue
+            if note["kind"] == "warn" or (risky and note["kind"] in ("review", "why")):
+                said.add((note["pr"], note["text"]))
+                label = "review" if note["kind"] == "review" else "warning" if note["kind"] == "warn" else event["kind"]
+                who = f"{note['author']}: " if note["kind"] == "review" and note["author"] else ""
+                pitfalls.append({"kind": label, "date": event["date"], "ref": f"PR #{note['pr']}",
+                                 "text": who + note["text"]})
     for wire in tripwires:
         owner = commits_all.get(wire.get("sha") or "")
         pitfalls.append({
@@ -341,6 +384,8 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
         "last": timeline[-1]["date"] if timeline else "",
         "score": score,
         "level": level_for(score),
+        "rank": None,
+        "ranked_of": None,
         "prose": prose,
         "reasons": reasons,
         "intent": intent,
@@ -353,6 +398,8 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
 
 
 def build(state: Dict, repo_name: str, head_date: str, ignore_patterns: Optional[List[str]] = None) -> Dict:
+    global _PRS
+    _PRS = state.get("prs", {})
     ignored = make_ignore(DEFAULT_IGNORES + list(ignore_patterns or []))
     tracked = {p: r for p, r in state["files"].items() if not ignored(p)}
     live = {p: r for p, r in tracked.items() if not r["deleted"]}
@@ -373,6 +420,14 @@ def build(state: Dict, repo_name: str, head_date: str, ignore_patterns: Optional
         path: _file_report(path, rec, state, ignored, docs_for_file.get(path, []))
         for path, rec in sorted(tracked.items())
     }
+    # Rank scored files against each other: on an old repository the order says more than
+    # the label does.
+    scored = sorted(
+        (f for f in files.values() if f["status"] == "live" and not f["prose"]),
+        key=lambda f: (-f["score"], -f["commits"], f["path"]),
+    )
+    for position, f in enumerate(scored, start=1):
+        f["rank"], f["ranked_of"] = position, len(scored)
     kinds = Counter(c["kind"] for c in state["commits"].values())
     dates = sorted(c["date"] for c in state["commits"].values())
     return {
@@ -387,6 +442,7 @@ def build(state: Dict, repo_name: str, head_date: str, ignore_patterns: Optional
             "files_deleted": sum(1 for f in files.values() if f["status"] == "deleted"),
             "kinds": dict(sorted(kinds.items())),
             "truncated": bool(state.get("truncated")),
+            "prs_read": sum(1 for p in state.get("prs", {}).values() if p.get("state") != "missing"),
             "thresholds": {"fragile": FRAGILE, "caution": CAUTION},
         },
         "files": files,
@@ -439,7 +495,7 @@ def graph(report: Dict, state: Dict, max_files: int = 250, max_commits: int = 40
             "kind": "reverted" if event["reverted_by"] else event["kind"], "title": event["title"],
             "author": event["author"], "why": event["why"], "warn": event["warn"],
             "prs": event["prs"], "issues": event["issues"], "tickets": event["tickets"],
-            "body": commit["body"][:600],
+            "body": commit["body"][:600], "pr_notes": event["pr_notes"],
         })
         targets = set()
         for entry in commit["files"]:
@@ -479,6 +535,7 @@ def graph(report: Dict, state: Dict, max_files: int = 250, max_commits: int = 40
     for f in chosen:
         details[f["path"]] = {
             "path": f["path"], "score": f["score"], "level": f["level"], "reasons": f["reasons"],
+            "rank": f["rank"], "ranked_of": f["ranked_of"],
             "commits": f["commits"], "fixes": f["fixes"], "reverts": f["reverts"],
             "authors": f["authors"], "first": f["first"], "last": f["last"], "previous": f["previous"],
             "intent": f["intent"], "pitfalls": f["pitfalls"][-14:], "coupled": f["coupled"],

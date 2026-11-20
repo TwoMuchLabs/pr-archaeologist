@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   dig:
@@ -30,7 +31,10 @@ jobs:
 
       - run: pip install "git+https://github.com/TwoMuchLabs/pr-archaeologist"
 
-      - run: pr-archaeologist dig
+      # --prs also reads the pull requests that commits refer to. Drop it to stay offline.
+      - run: pr-archaeologist dig --prs
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Commit refreshed outputs
         run: |

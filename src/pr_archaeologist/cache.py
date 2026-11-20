@@ -36,6 +36,7 @@ def empty_state() -> Dict:
         "cochange": {},  # path -> {other path -> times changed together}
         "blame": {},     # path -> {key, blob, lines, commits, symbols, tripwires}
         "docs": {},      # path -> {hash, ...parsed doc}
+        "prs": {},       # "12" -> pull-request summary (only filled by `dig --prs`)
         "merges": 0,
     }
 

@@ -1,5 +1,5 @@
 payments/retry.py
-FRAGILE 83/100 · 10 commits · 5 fixes · 1 revert · 5 authors · 2019-03-18 → 2024-03-18
+FRAGILE 83/100 · rank 1 of 12 · 10 commits · 5 fixes · 1 revert · 5 authors · 2019-03-18 → 2024-03-18
 
 WHY IT EXISTS
   2019-03-18 78f3385  Add retry wrapper for gateway timeouts — Maya Okafor

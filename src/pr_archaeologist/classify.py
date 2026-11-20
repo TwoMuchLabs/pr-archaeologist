@@ -83,7 +83,7 @@ WHY_RE = re.compile(
     re.I,
 )
 WARN_RE = re.compile(
-    r"(\b(do not|don't|never|must not|must|always|careful|beware|caveat|gotcha|hack|fragile|"
+    r"(\b(do not|don't|never|must not|must(?![-\w])|always|careful|beware|caveat|gotcha|hack|fragile|"
     r"subtle|important|workaround|temporary|until)\b|\b(note|warning|nb)\s*:)",
     re.I,
 )

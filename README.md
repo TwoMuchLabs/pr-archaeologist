@@ -13,8 +13,9 @@ shaped it. It writes:
 - **`pr-archaeologist explain <path>`**: a concise terminal timeline of why a module exists and
   what bit people before.
 
-It has no dependencies beyond Python 3.10+ and the `git` binary, makes no network calls, and uses no
-LLM. A nightly run only analyses commits added since the previous run.
+It has no dependencies beyond Python 3.10+ and the `git` binary, and uses no LLM. It makes no
+network calls unless you ask it to read pull requests (`dig --prs`). A nightly run only analyses
+commits added since the previous run.
 
 ![The interactive graph with payments/retry.py selected](docs/graph.png)
 
@@ -49,7 +50,7 @@ The output of exactly those commands is checked in under
 
 ```text
 payments/retry.py
-FRAGILE 83/100 · 10 commits · 5 fixes · 1 revert · 5 authors · 2019-03-18 → 2024-03-18
+FRAGILE 83/100 · rank 1 of 12 · 10 commits · 5 fixes · 1 revert · 5 authors · 2019-03-18 → 2024-03-18
 
 WHY IT EXISTS
   2019-03-18 78f3385  Add retry wrapper for gateway timeouts — Maya Okafor
@@ -90,6 +91,7 @@ Useful variants:
 
 ```text
 pr-archaeologist dig      [--repo PATH] [--full] [--index PATH] [--graph PATH] [--json PATH]
+                          [--prs | --no-prs] [--max-prs N]
                           [--ignore GLOB]... [--no-blame] [--max-commits N]
                           [--max-blame-files N] [--max-graph-files N] [--quiet]
 pr-archaeologist explain  <path> [--repo PATH] [--function NAME] [--json] [--all]
@@ -99,6 +101,33 @@ pr-archaeologist status   [--repo PATH]
 
 `explain` catches up on new commits by itself before answering, so it is never stale; pass
 `--no-refresh` to answer strictly from the cache.
+
+## Pull requests (optional)
+
+Commit messages say what changed. The pull request usually says why, and the review says what
+nearly went wrong.
+
+```bash
+pr-archaeologist dig --prs      # remembered: later runs keep reading new pull requests
+pr-archaeologist dig --no-prs   # turn it off again
+```
+
+With `--prs`, the tool looks up the pull requests that commits refer to (`(#12)`,
+`Merge pull request #12`) on GitHub and adds, per file: the pull request's stated reasons, its
+warnings, and remarks from human reviewers that explain or warn. Template scaffolding
+(checklists, HTML comments, code blocks), bot comments and paperwork remarks ("please rebase",
+"not signed off") are dropped. A pull request with several commits says its piece once per file.
+
+- Works for repositories whose `origin` is on github.com. It uses `GH_TOKEN` or `GITHUB_TOKEN`
+  if set, else the `gh` CLI's login, else anonymous access (public repositories, low rate limit).
+- Each pull request is read once and cached; open ones are re-read until they close. At most 300
+  new pull requests are read per run (`--max-prs`), newest first, so a large backlog fills in over
+  several nights.
+- If GitHub cannot be reached, the run carries on without them.
+- `explain` never touches the network; it shows what `dig` has cached.
+
+Tried on Reversibility Classes (8 pull requests, about 7 seconds). That repository has no human
+review comments, so the review-remark path is covered by unit tests only.
 
 ## Incremental caching
 
@@ -110,6 +139,7 @@ itself in git). Three independent keys keep nightly runs cheap:
 | History (`git log`) | The commit the cache was built up to | New commits exist: only `cached..HEAD` is read |
 | Blame and function mapping | Per file: blob sha + latest commit touching it | That file changed |
 | Markdown / ADR parsing | Per file: content hash | That doc was edited |
+| Pull requests (`--prs`) | Pull-request number | Not seen before, or still open |
 
 If the cached commit is no longer an ancestor of `HEAD` (force-push, rebase), the history is rebuilt
 automatically. `--full` forces a rebuild. The test suite asserts that an incremental run produces
@@ -166,6 +196,8 @@ Everything is heuristic and inspectable; [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WO
   ("ADR-0002").
 - **Hidden coupling** is co-change: files that keep being modified in the same commits, measured
   by overlap so that a README touched by half of all commits is not "coupled" to everything.
+- **Rank** orders the scored files within the repository (1 = most fragile). On an old project
+  where many files cross the threshold, read the rank, not the label.
 - **Fragility score** (0–100) weighs fixes, reverts, security changes and hotfixes heavily, and
   churn, author count, warning comments and coupling lightly. Fragile ≥ 60, caution ≥ 30. Churn
   alone never reaches caution. Documentation and licence files are not scored.
@@ -185,8 +217,10 @@ where that project's review and red-team findings actually landed.
   not measured for accuracy.
 - Symbol extraction uses Python's `ast` for Python and regex plus brace matching for other
   languages. It is approximate outside Python.
-- Only local information is used. PR and issue numbers are extracted from commit messages, but PR
-  descriptions and review threads are not fetched.
+- Pull requests are read only from github.com, and only those a commit message names. Issues are
+  not read.
+- Quoted commit and pull-request text is untrusted. The index tells agents to treat it as record,
+  not instruction, and the graph escapes it, but a reader should keep that in mind.
 - Only Markdown docs are parsed (not reStructuredText or AsciiDoc).
 - The cache keeps one record per commit, so very large histories produce large caches;
   `--max-commits` bounds the first run.

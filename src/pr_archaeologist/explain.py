@@ -74,7 +74,7 @@ def _advice(f: Dict) -> List[str]:
     strong = [c for c in f["coupled"] if c["strong"]]
     if strong:
         tips.append(f"Open {', '.join(c['path'] for c in strong[:3])} as well: they change together.")
-    fixes = [p for p in f["pitfalls"] if p["kind"] in ("fix", "security")]
+    fixes = [p for p in f["pitfalls"] if p["kind"] in ("fix", "security") and not p["ref"].startswith("PR #")]
     if fixes:
         tips.append(f"Keep the behaviour from the last fix intact ({fixes[-1]['ref']}: {fixes[-1]['text'].split(' — ')[0]}).")
     if f["level"] == "stable" and not tips and not f.get("prose"):
@@ -98,6 +98,8 @@ def render_file(f: Dict, color: bool = False, show_all: bool = False, limit: int
     badge = paint(f"{f['level'].upper()} {f['score']}/100", LEVEL_COLOR[f["level"]], "bold")
     if f.get("prose"):
         badge = paint("DOCUMENT · not scored", "dim")
+    elif f.get("rank") and f["status"] == "live":
+        badge += paint(f" · rank {f['rank']} of {f['ranked_of']}", "dim")
     out.append(f"{badge} · " + " · ".join(stats))
     if f["previous"]:
         out.append(paint("formerly " + ", ".join(f["previous"]), "dim"))

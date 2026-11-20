@@ -13,7 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.join(ROOT, "examples"))
 
-from pr_archaeologist import blame, cache, classify, cli, docs, history, model, render_html, symbols  # noqa: E402
+from pr_archaeologist import blame, cache, classify, cli, docs, history, model, prs, render_html, symbols  # noqa: E402
 import make_demo_repo  # noqa: E402
 
 
@@ -139,6 +139,73 @@ class DocsTest(unittest.TestCase):
 
     def test_plain_doc(self):
         self.assertEqual(docs.parse("README.md", "# Hello\n\nSee `src/app.py`.\n")["kind"], "doc")
+
+
+class PullRequestTest(unittest.TestCase):
+    TEMPLATE = (
+        "## What this changes\n\n<!-- e.g. describe it -->\n\n"
+        "The retry charged cards twice because a timeout does not mean the charge failed.\n\n"
+        "## Checklist\n\n- [ ] Signed off\n- [x] Tests added\n\n```\nnever run this\n```\n"
+    )
+
+    def test_template_scaffolding_is_dropped(self):
+        cleaned = prs.clean_body(self.TEMPLATE)
+        for junk in ("e.g. describe it", "Signed off", "never run this", "Checklist"):
+            self.assertNotIn(junk, cleaned)
+        got = prs.summarise({"number": 31, "title": "Fix double charge", "body": self.TEMPLATE,
+                             "user": {"login": "priya"}, "merged_at": "2019-06-11"}, [])
+        self.assertEqual(got["state"], "merged")
+        self.assertEqual(len(got["why"]), 1)
+        self.assertIn("timeout does not mean", got["why"][0])
+
+    def test_review_remarks_and_bots(self):
+        comments = [
+            {"user": {"login": "tomas", "type": "User"}, "body": "Looks good.\n\nNever retry a declined card, the gateway already answered."},
+            {"user": {"login": "dependabot[bot]", "type": "Bot"}, "body": "You must rebase because of conflicts."},
+        ]
+        got = prs.summarise({"number": 1, "title": "t", "body": "", "user": {"login": "maya"}}, comments)
+        self.assertEqual([(d["author"], d["text"]) for d in got["discussion"]],
+                         [("tomas", "Never retry a declined card, the gateway already answered.")])
+
+    def test_update_is_incremental_and_survives_failure(self):
+        calls = []
+
+        def fake(path):
+            calls.append(path)
+            if "/pulls/31" in path and path.endswith("/31"):
+                return {"number": 31, "title": "Fix double charge", "body": self.TEMPLATE, "merged_at": "x",
+                        "user": {"login": "priya"}, "comments": 0, "review_comments": 0, "html_url": "u"}
+            if path.endswith("/reviews?per_page=100"):
+                return []
+            raise prs.urllib.error.HTTPError(path, 404, "Not Found", None, None)
+
+        state = {"commits": {"a": {"prs": [31], "date": "2019-06-11"}, "b": {"prs": [12], "date": "2019-03-18"}}}
+        first = prs.update(".", state, fetch_json=fake)
+        self.assertEqual((first["fetched"], first["failed"]), (1, 0))
+        self.assertEqual(state["prs"]["12"]["state"], "missing")  # "#12" was not a pull request here
+        before = len(calls)
+        second = prs.update(".", state, fetch_json=fake)
+        self.assertEqual((second["fetched"], second["cached"], len(calls)), (0, 2, before))
+
+    def test_pr_text_reaches_the_file_story(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "r")
+            os.makedirs(repo)
+            git(repo, "init", "-q", "-b", "main")
+            write(repo, "pay.py", "def charge():\n    return 1\n")
+            commit(repo, "Add charge (#1)")
+            write(repo, "pay.py", "def charge():\n    return 2\n")
+            commit(repo, "fix: double charge (#2)", date="2021-02-01T00:00:00+00:00")
+            self.assertEqual(run_cli("dig", "--repo", repo)[0], 0)
+            state = cache.load(repo)
+            state["prs"] = {"2": {"number": 2, "state": "merged", "author": "priya", "lead": None,
+                                  "why": ["A timeout does not mean the charge failed."], "warn": ["Never drop the idempotency key."],
+                                  "discussion": [{"author": "tomas", "text": "This must stay keyed on the order, not the attempt.", "own": False}]}}
+            f = model.build(state, "r", "2021-02-01")["files"]["pay.py"]
+            texts = {(p["kind"], p["ref"]): p["text"] for p in f["pitfalls"] if p["ref"] == "PR #2"}
+            self.assertEqual(sorted(k for k, _ in texts), ["fix", "review", "warning"])
+            self.assertTrue(texts[("review", "PR #2")].startswith("tomas: "))
+            self.assertEqual((f["rank"], f["ranked_of"]), (1, 1))
 
 
 class EndToEndTest(unittest.TestCase):

@@ -14,7 +14,7 @@ import sys
 import time
 from typing import Dict, List, Optional
 
-from . import __version__, blame, cache, docs, explain as explain_mod, history, model, render_html, render_md
+from . import __version__, blame, cache, docs, explain as explain_mod, history, model, prs, render_html, render_md
 from .gitio import GitError, git, head_sha, repo_root
 
 DEFAULT_INDEX = "CODEBASE_ARCHAEOLOGY.md"
@@ -69,6 +69,11 @@ def refresh(repo: str, state: Dict, args, say) -> Dict:
             repo, state, ignored, max_files=getattr(args, "max_blame_files", 2000), progress=say
         )
     result["docs"] = docs.update(repo, state, ignored, skip=config["outputs"])
+    # Pull requests are opt-in (the only network access) and the choice is remembered.
+    if getattr(args, "prs", None) is not None:
+        config["prs"] = bool(args.prs)
+    if config.get("prs") and hasattr(args, "max_prs"):  # only `dig` goes to the network
+        result["prs"] = prs.update(repo, state, limit=getattr(args, "max_prs", 300), progress=say)
     return result
 
 
@@ -112,6 +117,10 @@ def cmd_dig(args) -> int:
         f"({done['blame']['cached']} cached), {done['docs']['parsed']} doc(s) parsed, "
         f"{time.time() - started:.1f}s"
     )
+    if "prs" in done:
+        got = done["prs"]
+        note = f" ({got['skipped']})" if got["skipped"] else ""
+        say(f"  pull requests: {got['fetched']} read, {got['cached']} cached{note}")
     say(f"  files: {counts['fragile']} fragile, {counts['caution']} caution, {counts['stable']} stable")
     say("  wrote: " + (", ".join(wrote) if wrote else "nothing (outputs already up to date)"))
     return 0
@@ -200,6 +209,10 @@ def build_parser() -> argparse.ArgumentParser:
     dig.add_argument("--json", default=None, metavar="PATH", help="also write the full model as JSON")
     dig.add_argument("--ignore", action="append", default=[], metavar="GLOB", help="extra path glob to leave out (repeatable, remembered)")
     dig.add_argument("--no-blame", action="store_true", help="skip git blame (faster; no function-level mapping)")
+    dig.add_argument("--prs", dest="prs", action="store_true", default=None,
+                     help="also read the pull requests commits refer to, from GitHub (needs network; remembered)")
+    dig.add_argument("--no-prs", dest="prs", action="store_false", help="stop reading pull requests")
+    dig.add_argument("--max-prs", type=int, default=300, help="read at most N new pull requests per run (default: 300)")
     dig.add_argument("--max-commits", type=int, default=None, help="on a full build, only read the latest N commits")
     dig.add_argument("--max-blame-files", type=int, default=2000, help="blame at most N files, busiest first (default: 2000)")
     dig.add_argument("--max-graph-files", type=int, default=250, help="file nodes in the HTML graph (default: 250)")
