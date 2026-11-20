@@ -1,0 +1,46 @@
+# Save GitHub's real answers for pull requests and issues of two public repositories, at
+# fixed commits, to the `recordings` branch. The recordings let the code that reads pull
+# requests be checked offline (see scripts/record_github.py). Run by hand, or by editing
+# this file.
+name: Record GitHub answers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/record-github.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Record
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          while read -r slug sha; do
+            name="${slug#*/}"
+            git clone --quiet "https://github.com/${slug}" "$RUNNER_TEMP/$name"
+            git -C "$RUNNER_TEMP/$name" checkout --quiet "$sha"
+            python scripts/record_github.py "$RUNNER_TEMP/$name" "$RUNNER_TEMP/out/$name.json.gz" --max-prs 90
+          done <<'EOF'
+          pallets/flask 49943b5a94413a530761350f04e896f76e8d620e
+          gin-gonic/gin 0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646
+          EOF
+      - name: Publish to the recordings branch
+        run: |
+          cd "$RUNNER_TEMP/out"
+          git init --quiet -b recordings
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit --quiet -m "GitHub answers recorded by run ${GITHUB_RUN_ID}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}" recordings
