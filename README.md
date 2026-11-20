@@ -303,6 +303,17 @@ where that project's review and red-team findings actually landed.
 python -m unittest discover -s tests -v     # stdlib only; builds throwaway git repos
 ```
 
+### Checking a refactor
+
+"No behaviour change" should be a measurement. Two scripts run the code from a git ref and the code in the working tree side by side and compare everything they produce:
+
+```bash
+python scripts/behaviour_check.py [--quick] <base-ref> <repo> [<repo> ...]              # everything except reading from GitHub
+python scripts/prs_check.py [--quick] <base-ref> <recording.json.gz> <repo> [...]        # prs.py, replaying GitHub's recorded answers
+```
+
+The recordings for `prs_check.py` (pallets/flask and gin-gonic/gin, at the commits named in `.github/workflows/record-github.yml`) are on the `recordings` branch. A clean result is evidence, not proof: each script's header lists what it does not cover.
+
 Layout:
 
 ```text
