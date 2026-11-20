@@ -12,7 +12,7 @@ import json
 import os
 import sys
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import __version__, blame, cache, docs, explain as explain_mod, history, hook as hook_mod, model, prs, render_html, render_md
 from .gitio import GitError, git, head_sha, repo_root
@@ -128,9 +128,8 @@ def cmd_dig(args) -> int:
     return 0
 
 
-def cmd_explain(args) -> int:
-    repo = repo_root(args.repo)
-    state = cache.load(repo)
+def _cache_ready(repo: str, state: Dict, args) -> bool:
+    """Bring the cache up to HEAD unless told not to; False if there is nothing to answer from."""
     head = head_sha(repo)
     if not args.no_refresh and state.get("head") != head:
         note = "building the cache (first run)" if not state.get("head") else "catching up on new commits"
@@ -139,6 +138,36 @@ def cmd_explain(args) -> int:
         cache.save(repo, state)
     elif not state.get("head"):
         print("pr-archaeologist: no cache yet; run `pr-archaeologist dig` first.", file=sys.stderr)
+        return False
+    return True
+
+
+def _explain_dir(args, found, color: bool) -> int:
+    if args.json:
+        print(json.dumps([{k: f[k] for k in ("path", "score", "level", "commits", "fixes", "reasons")} for f in found], indent=1))
+    else:
+        sys.stdout.write(explain_mod.render_dir(args.path, found, color))
+    return 0
+
+
+def _explain_function(args, found, color: bool) -> int:
+    text = explain_mod.render_function(found, args.function, color)
+    if text is None:
+        names = ", ".join(s["name"] for s in found["symbols"][:30]) or "(none detected)"
+        print(f"pr-archaeologist: no function '{args.function}' in {found['path']}. Known: {names}", file=sys.stderr)
+        return 2
+    if args.json:
+        match = [s for s in found["symbols"] if s["name"] == args.function or s["name"].rsplit(".", 1)[-1] == args.function]
+        print(json.dumps(match, indent=1, ensure_ascii=False))
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+def cmd_explain(args) -> int:
+    repo = repo_root(args.repo)
+    state = cache.load(repo)
+    if not _cache_ready(repo, state, args):
         return 2
 
     report = _report(repo, state)
@@ -150,23 +179,9 @@ def cmd_explain(args) -> int:
             print("Did you mean:\n  " + "\n  ".join(found), file=sys.stderr)
         return 2
     if kind == "dir":
-        if args.json:
-            print(json.dumps([{k: f[k] for k in ("path", "score", "level", "commits", "fixes", "reasons")} for f in found], indent=1))
-        else:
-            sys.stdout.write(explain_mod.render_dir(args.path, found, color))
-        return 0
+        return _explain_dir(args, found, color)
     if args.function:
-        text = explain_mod.render_function(found, args.function, color)
-        if text is None:
-            names = ", ".join(s["name"] for s in found["symbols"][:30]) or "(none detected)"
-            print(f"pr-archaeologist: no function '{args.function}' in {found['path']}. Known: {names}", file=sys.stderr)
-            return 2
-        if args.json:
-            match = [s for s in found["symbols"] if s["name"] == args.function or s["name"].rsplit(".", 1)[-1] == args.function]
-            print(json.dumps(match, indent=1, ensure_ascii=False))
-        else:
-            sys.stdout.write(text)
-        return 0
+        return _explain_function(args, found, color)
     if args.json:
         print(json.dumps(found, indent=1, ensure_ascii=False))
     else:
@@ -174,24 +189,29 @@ def cmd_explain(args) -> int:
     return 0
 
 
+def _hook_request(args) -> Tuple[str, str, str]:
+    """The file about to be edited, the directory to resolve it from, and the session."""
+    if args.plain:
+        return args.plain, os.getcwd(), ""
+    raw = sys.stdin.read()
+    event: Dict = json.loads(raw) if raw.strip() else {}
+    return hook_mod.path_from_event(event) or "", event.get("cwd") or os.getcwd(), str(event.get("session_id") or "")
+
+
+def _repo_of(target: str, cwd: str) -> str:
+    start = os.path.dirname(target) if os.path.isabs(target) else cwd
+    while start and not os.path.isdir(start):
+        start = os.path.dirname(start)
+    return repo_root(start or cwd)
+
+
 def cmd_hook(args) -> int:
     """Never fails and never blocks: any problem means "say nothing"."""
     try:
-        event: Dict = {}
-        if args.plain:
-            target, cwd, session = args.plain, os.getcwd(), ""
-        else:
-            raw = sys.stdin.read()
-            event = json.loads(raw) if raw.strip() else {}
-            target = hook_mod.path_from_event(event) or ""
-            cwd = event.get("cwd") or os.getcwd()
-            session = str(event.get("session_id") or "")
+        target, cwd, session = _hook_request(args)
         if not target:
             return 0
-        start = os.path.dirname(target) if os.path.isabs(target) else cwd
-        while start and not os.path.isdir(start):
-            start = os.path.dirname(start)
-        repo = repo_root(start or cwd)
+        repo = _repo_of(target, cwd)
         state = cache.load(repo)
         if not state.get("head"):
             return 0  # no cache yet: building one here could stall the edit
