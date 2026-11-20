@@ -28,6 +28,8 @@ def _refs(event: Dict) -> str:
 def _file_section(f: Dict, max_events: int) -> List[str]:
     out = [f"### `{f['path']}`", ""]
     risk = f"{ICON[f['level']]} **{f['level']}** (score {f['score']}/100)"
+    if f.get("prose"):
+        risk = "documentation, not scored"
     if f["reasons"]:
         risk += " — " + ", ".join(f["reasons"])
     out.append(f"- **Risk:** {risk}")
@@ -131,7 +133,7 @@ def render(report: Dict, max_sections: int = 300, max_events: int = 14) -> str:
     pairs = {}
     for f in files:
         for link in f["coupled"]:
-            if link["count"] >= 3 and link["ratio"] >= 0.5:
+            if link["strong"]:
                 key = tuple(sorted((f["path"], link["path"])))
                 pairs[key] = max(pairs.get(key, 0), link["count"])
     if pairs:

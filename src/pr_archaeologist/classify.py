@@ -25,7 +25,7 @@ KIND_BY_TYPE = {
 }
 
 FIX_RE = re.compile(
-    r"\b(fix(es|ed|ing)?|bug(fix)?|hotfix|regression|crash(es|ed|ing)?|race( condition)?|"
+    r"\b(fix(es|ed|ing)?|close[sd]? .*\bfindings?|bug(fix)?|hotfix|regression|crash(es|ed|ing)?|race( condition)?|"
     r"deadlock|leak(s|ing)?|off[- ]by[- ]one|overflow|null ?pointer|npe|broken|"
     r"incorrect(ly)?|wrong(ly)?|workaround|double[- ](charge|count|free)|corrupt(s|ed|ion)?)\b",
     re.I,
@@ -40,11 +40,15 @@ TRIVIAL_FIX_RE = re.compile(
 )
 TRIVIAL_FIXED_RE = re.compile(r"\b(typos?|spelling|whitespace|formatting|lint|docs?|grammar)\s+fix(es|ed)?\b", re.I)
 FIXES_REF_RE = re.compile(r"\bfix(es|ed)?\s+(#\d+|[A-Z][A-Z0-9]+-\d+)", re.I)
+# The bare word "security" is not enough ("add security policy" is paperwork, not a fix).
 SECURITY_RE = re.compile(
-    r"\b(cve-\d{4}-\d+|vulnerab\w+|xss|csrf|sql injection|injection|security|"
-    r"sanitiz\w+|privilege escalation|auth(entication|orization)? bypass)\b",
+    r"\b(cve-\d{4}-\d+|vulnerab\w+|xss|csrf|sql injection|injection|sanitiz\w+|"
+    r"privilege escalation|bypass(es|ed)?|harden(s|ed|ing)?|spoof\w*|red[- ]team\w*|"
+    r"fail[- ]opens?|least[- ]privilege|"
+    r"security (fix(es)?|issue|bug|hole|patch|advisory|review|audit|finding(s)?))\b",
     re.I,
 )
+RELEASE_RE = re.compile(r"^\s*(release|prepare|bump( version)?( to)?|version)\s+v?\d+(\.\d+)+|^\s*v?\d+\.\d+(\.\d+)?\s*$", re.I)
 DESIGN_RE = re.compile(
     r"\b(introduc(e|es|ed|ing)|initial (commit|implementation|version|import)|redesign\w*|"
     r"rewrit(e|es|ten)|re-?architect\w*|migrat(e|es|ed|ion)|replac(e|es|ed) .+ with|"
@@ -54,8 +58,12 @@ DESIGN_RE = re.compile(
 )
 PERF_RE = re.compile(r"\b(perf(ormance)?|optimi[sz]\w+|speed(s|ed)? up|faster|latency|n\+1|throughput)\b", re.I)
 REFACTOR_RE = re.compile(r"\b(refactor\w*|clean ?up|renam(e|es|ed)|reorgani[sz]\w+|simplif\w+|tidy)\b", re.I)
-DOCS_RE = re.compile(r"\b(docs?|readme|changelog|comment(s)?|typo)\b", re.I)
-TEST_RE = re.compile(r"\b(tests?|spec|coverage)\b", re.I)
+DOCS_RE = re.compile(
+    r"^(docs?|documentation|readme|changelog|typos?)\b|\b(fix|correct)\w* (a |the |some )?typos?\b|"
+    r"\b(update|fix|improve|add|clarify|rewrite|expand)\w* (the )?(docs?|documentation|readme|changelog|comments?)\b",
+    re.I,
+)
+TEST_RE = re.compile(r"\b(tests?|coverage)\b", re.I)
 
 REVERT_SHA_RE = re.compile(r"This reverts commit ([0-9a-f]{7,40})", re.I)
 REVERT_SUBJECT_RE = re.compile(r'^Revert\s+"(.+)"\s*$')
@@ -94,10 +102,26 @@ def strip_conventional(subject: str) -> str:
 
 
 def _sentences(body: str) -> List[str]:
-    """Split a commit body into sentence-ish units, dropping trailers and noise."""
-    out: List[str] = []
+    """Split a commit body into sentence-ish units, dropping trailers and noise.
+
+    A bullet is its own unit (with its wrapped continuation lines); prose paragraphs are
+    split on sentence ends.
+    """
+    units: List[str] = []
     for para in re.split(r"\n\s*\n", body):
-        lines = []
+        prose: List[str] = []
+        bullet: Optional[str] = None
+
+        def flush() -> None:
+            nonlocal bullet
+            if bullet is not None:
+                units.append(bullet)
+                bullet = None
+            if prose:
+                text = " ".join(prose)
+                units.extend(re.split(r"(?<=[.!?])\s+(?=[A-Z`\"'])", text))
+                prose.clear()
+
         for line in para.splitlines():
             line = line.strip()
             if not line:
@@ -105,14 +129,20 @@ def _sentences(body: str) -> List[str]:
             key = line.split(":", 1)[0].lower()
             if TRAILER_RE.match(line) and key in TRAILER_KEYS:
                 continue
-            if line.startswith(("This reverts commit", "Merge ", "* ")) and len(line) < 12:
-                continue
-            lines.append(re.sub(r"^[-*+]\s+", "", line))
-        text = " ".join(lines)
-        for sent in re.split(r"(?<=[.!?])\s+(?=[A-Z`\"'])", text):
-            sent = sent.strip()
-            if 12 <= len(sent):
-                out.append(sent if len(sent) <= 260 else sent[:257].rstrip() + "...")
+            m = re.match(r"^(?:[-*+•]|\d+[.)])\s+(.*)$", line)
+            if m:
+                flush()
+                bullet = m.group(1)
+            elif bullet is not None:
+                bullet += " " + line
+            else:
+                prose.append(line)
+        flush()
+    out: List[str] = []
+    for sent in units:
+        sent = sent.strip()
+        if len(sent) >= 12 and not sent.endswith(":"):
+            out.append(sent if len(sent) <= 260 else sent[:257].rstrip() + "...")
     return out
 
 
@@ -139,6 +169,8 @@ def classify(subject: str, body: str) -> Dict:
     trivial = TRIVIAL_FIX_RE.search(subject) or TRIVIAL_FIXED_RE.search(subject)
     if kind is None and trivial and not FIXES_REF_RE.search(full):
         kind = "chore"
+    if kind is None and RELEASE_RE.match(subject):
+        kind = "release"  # a bundle of earlier work: never evidence that one file was broken
     if kind is None:
         if SECURITY_RE.search(subject) or re.search(r"cve-\d{4}-\d+", full, re.I):
             kind = "security"

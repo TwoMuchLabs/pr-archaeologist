@@ -145,9 +145,13 @@ cloud dev container and a no-change rerun under 1 second.
 
 Everything is heuristic and inspectable; [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WORKS.md) has the detail.
 
-- **Commit kind** (fix, revert, security, perf, design, feature, refactor, docs, test, chore) comes
-  from Conventional Commit prefixes and keyword patterns in the subject. "Fix typo" and "fix mypy"
-  are deliberately not counted as bug fixes.
+- **Commit kind** (fix, revert, security, perf, design, feature, refactor, release, docs, test,
+  chore) comes from Conventional Commit prefixes and keyword patterns in the subject. "Fix typo"
+  and "fix mypy" are deliberately not counted as bug fixes; "harden", "red team" and "fail-open"
+  count as security changes; the bare word "security" does not.
+- **A fix only counts against a file it really changed.** The commit that created a file, a
+  release commit, and a commit that touched one or two lines of a file while mostly changing
+  others (a version bump riding along) are shown in the timeline but not scored.
 - **Why and warnings** are sentences from the commit body containing causal language ("because",
   "root cause", "so that") or imperative warnings ("do not", "never", "must").
 - **Reverts** are linked to the commit they undo and surface as "tried and reverted".
@@ -157,15 +161,25 @@ Everything is heuristic and inspectable; [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WO
   fix commits (which functions a fix touched, even if those lines were rewritten since).
 - **ADRs and docs** are linked to code by the paths they mention and by commits that cite them
   ("ADR-0002").
-- **Hidden coupling** is co-change: files that keep being modified in the same commits.
+- **Hidden coupling** is co-change: files that keep being modified in the same commits, measured
+  by overlap so that a README touched by half of all commits is not "coupled" to everything.
 - **Fragility score** (0–100) weighs fixes, reverts, security changes and hotfixes heavily, and
-  churn, author count, warning comments and coupling lightly. Fragile ≥ 60, caution ≥ 30.
+  churn, author count, warning comments and coupling lightly. Fragile ≥ 60, caution ≥ 30. Churn
+  alone never reaches caution. Documentation and licence files are not scored.
+
+These rules were tightened after the first run on a repository whose history we know
+([Reversibility Classes](https://github.com/TwoMuchLabs/reversibility-classes), 46 commits). The
+first pass ranked its README as the most fragile file and labelled 44 of 83 files fragile or
+caution; after the fixes the top three are the scanner, its command line and the gate, which is
+where that project's review and red-team findings actually landed.
 
 ## Limits worth knowing
 
 - It reads what was written down. A repository of `wip` and `fix stuff` commits yields a thin story.
 - Fragility thresholds are absolute. A decade-old, heavily patched project will show many fragile
-  files; rank order is more meaningful there than the label.
+  files (about one in eight on Flask); rank order is more meaningful there than the label.
+- Commit kinds are keyword rules. They have been checked by hand against one repository's history,
+  not measured for accuracy.
 - Symbol extraction uses Python's `ast` for Python and regex plus brace matching for other
   languages. It is approximate outside Python.
 - Only local information is used. PR and issue numbers are extracted from commit messages, but PR

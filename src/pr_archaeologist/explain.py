@@ -71,13 +71,13 @@ def _advice(f: Dict) -> List[str]:
     adrs = [d for d in f["docs"] if d["kind"] == "adr"]
     if adrs:
         tips.append(f"Honour {', '.join(d['label'] for d in adrs[:3])}, or supersede it explicitly in your PR.")
-    strong = [c for c in f["coupled"] if c["count"] >= 3 and c["ratio"] >= 0.5]
+    strong = [c for c in f["coupled"] if c["strong"]]
     if strong:
         tips.append(f"Open {', '.join(c['path'] for c in strong[:3])} as well: they change together.")
     fixes = [p for p in f["pitfalls"] if p["kind"] in ("fix", "security")]
     if fixes:
         tips.append(f"Keep the behaviour from the last fix intact ({fixes[-1]['ref']}: {fixes[-1]['text'].split(' — ')[0]}).")
-    if f["level"] == "stable" and not tips:
+    if f["level"] == "stable" and not tips and not f.get("prose"):
         tips.append("No recorded fixes, reverts or decisions: ordinary care applies.")
     return tips
 
@@ -89,11 +89,15 @@ def render_file(f: Dict, color: bool = False, show_all: bool = False, limit: int
     stats = [f"{f['commits']} commits"]
     if f["fixes"]:
         stats.append(f"{f['fixes']} fix{'es' if f['fixes'] != 1 else ''}")
+    if f["security"]:
+        stats.append(f"{f['security']} security change{'s' if f['security'] != 1 else ''}")
     if f["reverts"]:
         stats.append(f"{f['reverts']} revert{'s' if f['reverts'] != 1 else ''}")
     stats.append(f"{f['author_count']} author{'s' if f['author_count'] != 1 else ''}")
     stats.append(f"{f['first']} → {f['last']}")
     badge = paint(f"{f['level'].upper()} {f['score']}/100", LEVEL_COLOR[f["level"]], "bold")
+    if f.get("prose"):
+        badge = paint("DOCUMENT · not scored", "dim")
     out.append(f"{badge} · " + " · ".join(stats))
     if f["previous"]:
         out.append(paint("formerly " + ", ".join(f["previous"]), "dim"))
@@ -163,7 +167,7 @@ def render_file(f: Dict, color: bool = False, show_all: bool = False, limit: int
     if risky:
         out += ["", paint("FUNCTIONS WITH A HISTORY", "cyan", "bold")]
         for s in risky[: (None if show_all else 8)]:
-            out.append(f"  {paint(s['name'], 'bold')}  L{s['start']}–{s['end']}  ·  {len(s['fixes'])} fix/revert")
+            out.append(f"  {paint(s['name'], 'bold')}  L{s['start']}–{s['end']}  ·  {len(s['fixes'])} risky change{'s' if len(s['fixes']) != 1 else ''}")
             for e in s["fixes"][-3:]:
                 out.append(f"      {e['date']} {paint(e['short'], 'dim')} {e['title']}")
 

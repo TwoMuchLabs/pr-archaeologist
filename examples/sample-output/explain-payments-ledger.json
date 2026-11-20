@@ -22,6 +22,7 @@
  "last": "2023-05-09",
  "score": 57,
  "level": "caution",
+ "prose": false,
  "reasons": [
   "3 bug fixes",
   "4 authors"
@@ -85,7 +86,8 @@
    "delta": [
     11,
     0
-   ]
+   ],
+   "incidental": false
   },
   {
    "sha": "6b97149d99ef8670960d85486cca94e64b5142cf",
@@ -112,7 +114,8 @@
    "delta": [
     1,
     1
-   ]
+   ],
+   "incidental": false
   },
   {
    "sha": "76fec1a0784c80f3dbfd0cf242916ad4ac9bf93d",
@@ -139,7 +142,8 @@
    "delta": [
     1,
     1
-   ]
+   ],
+   "incidental": false
   },
   {
    "sha": "af58680fa08455010b291013d47c70b4c8dd4a62",
@@ -164,7 +168,8 @@
    "delta": [
     0,
     0
-   ]
+   ],
+   "incidental": false
   },
   {
    "sha": "02ec589c899cce158ec1c12702c1cf9f3d56cfd1",
@@ -191,7 +196,8 @@
    "delta": [
     5,
     0
-   ]
+   ],
+   "incidental": false
   },
   {
    "sha": "82b8ab05aef1d4d629c0ac3af9d4d06fa93569dd",
@@ -220,7 +226,8 @@
    "delta": [
     10,
     0
-   ]
+   ],
+   "incidental": false
   }
  ],
  "pitfalls": [
@@ -260,19 +267,25 @@
    "path": "api/handlers.py",
    "count": 2,
    "of": 6,
-   "ratio": 0.33
+   "ratio": 0.33,
+   "overlap": 0.25,
+   "strong": false
   },
   {
    "path": "payments/currency.py",
    "count": 2,
    "of": 6,
-   "ratio": 0.33
+   "ratio": 0.33,
+   "overlap": 0.33,
+   "strong": false
   },
   {
    "path": "workers/reconcile.py",
    "count": 2,
    "of": 6,
-   "ratio": 0.33
+   "ratio": 0.33,
+   "overlap": 0.29,
+   "strong": false
   }
  ],
  "symbols": [
@@ -447,15 +460,6 @@
    },
    "fixes": [
     {
-     "short": "02ec589",
-     "date": "2021-01-20",
-     "kind": "fix",
-     "title": "reconcile worker skipped refunds",
-     "why": [
-      "Refunds are stored as negative entries and the worker only summed amount > 0, which caused a false mismatch on every refund day."
-     ]
-    },
-    {
      "short": "82b8ab0",
      "date": "2023-05-09",
      "kind": "fix",
@@ -520,17 +524,7 @@
     "reverts": null,
     "reverted_by": null
    },
-   "fixes": [
-    {
-     "short": "82b8ab0",
-     "date": "2023-05-09",
-     "kind": "fix",
-     "title": "race between webhook and retry loop recording a charge twice",
-     "why": [
-      "The webhook and the retry loop could both write the same charge to the ledger."
-     ]
-    }
-   ]
+   "fixes": []
   }
  ]
 }

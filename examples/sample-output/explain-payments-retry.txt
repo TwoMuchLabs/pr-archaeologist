@@ -57,13 +57,11 @@ USUALLY CHANGES WITH
   payments/gateway.py  (4 of 10 commits)
 
 FUNCTIONS WITH A HISTORY
-  backoff  L14–18  ·  1 fix/revert
+  backoff  L14–18  ·  1 risky change
       2024-03-18 24c3d32 cap backoff at 30s so workers do not stall
-  charge_with_retry  L21–33  ·  6 fix/revert
+  charge_with_retry  L21–33  ·  6 risky changes
       2020-09-17 2fb2215 Revert "Cache gateway auth token in retry loop (#71)"
       2021-03-08 936a792 off-by-one in retry budget
-      2023-05-09 82b8ab0 race between webhook and retry loop recording a charge twice
-  record_result  L36–40  ·  1 fix/revert
       2023-05-09 82b8ab0 race between webhook and retry loop recording a charge twice
 
 BEFORE YOU EDIT

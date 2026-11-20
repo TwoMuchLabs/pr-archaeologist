@@ -80,7 +80,23 @@ score  = 100 · (1 − e^(−weight/18))          fragile ≥ 60, caution ≥ 30
 ```
 
 `fixes*` grows linearly to six fixes and by square root after that; the other counts are capped.
-Co-change counts ignore commits touching more than 25 files, and changelog-like files.
+
+What does not count:
+
+- the commit that created the file, even if it was a fix;
+- a risky commit that changed two lines or fewer of this file while touching more than three files;
+- release commits (`Release v1.2.0`, `Prepare v0.3.0`), which bundle earlier work;
+- churn and coupling on their own: with no fix, revert, security change or warning comment, the
+  score stops just below caution;
+- documentation and licence files (`.md`, `.rst`, `.txt`, `.cff`, `LICENSE`), which are not scored.
+
+Co-change counts ignore commits touching more than 25 files, and changelog-like files. Two files
+are listed as changing together when they share at least two commits, 30% of this file's commits
+and a Jaccard overlap of 0.25; the coupling is "strong" (scored, drawn in the graph, listed under
+hidden couplings) at three commits, 50% and an overlap of 0.4.
+
+For a function, a risky commit is listed only if it came after the commit that wrote the
+function's oldest surviving lines.
 
 ## 6. Outputs
 

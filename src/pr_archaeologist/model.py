@@ -28,7 +28,16 @@ RISKY_KINDS = ("fix", "security", "revert")
 LANDMARK_KINDS = ("fix", "security", "revert", "design", "perf")
 ADR_MENTION_RE = re.compile(r"\badr[- _#]?0*(\d{1,5})\b", re.I)
 COUPLING_NOISE = ("changelog", "changes", "history", "news", "release", "authors", "contributors")
+PROSE_EXTENSIONS = {"md", "markdown", "rst", "txt", "adoc", "cff"}
+PROSE_NAMES = ("license", "licence", "notice", "copying", "readme", "codeowners")
 FRAGILE, CAUTION = 60, 30
+
+
+def is_prose(path: str) -> bool:
+    """Documentation and legal text: it has a history, but "fragile" is the wrong word for it."""
+    base = path.rsplit("/", 1)[-1].lower()
+    ext = base.rsplit(".", 1)[-1] if "." in base else ""
+    return ext in PROSE_EXTENSIONS or base.split(".", 1)[0].startswith(PROSE_NAMES)
 
 
 def make_ignore(patterns: Iterable[str]) -> Callable[[str], bool]:
@@ -167,17 +176,27 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
         event = brief(commit)
         event["note"] = note
         event["delta"] = [entry[1], entry[2]] if entry else [0, 0]
+        # A fix does not count against this file when the file was only created by it, or
+        # was barely touched in a commit that mostly changed other files (a version bump
+        # riding along with a real fix).
+        changed = sum(event["delta"])
+        event["incidental"] = bool(
+            commit["kind"] in RISKY_KINDS
+            and (idx == 0 or (len(commit["files"]) > 3 and changed <= 2))
+        )
         timeline.append(event)
 
-    fixes = [e for e in timeline if e["kind"] == "fix"]
-    security = [e for e in timeline if e["kind"] == "security"]
-    reverts = [e for e in timeline if e["kind"] == "revert"]
-    hotfixes = [e for e in timeline if "hotfix" in e["tags"]]
+    counted = [e for e in timeline if not e["incidental"]]
+    fixes = [e for e in counted if e["kind"] == "fix"]
+    security = [e for e in counted if e["kind"] == "security"]
+    reverts = [e for e in counted if e["kind"] == "revert"]
+    hotfixes = [e for e in counted if "hotfix" in e["tags"]]
     authors = Counter(e["author"] for e in timeline)
     blame = state["blame"].get(path, {})
     tripwires = blame.get("tripwires", [])
 
-    # Co-change: what else moves when this file moves.
+    # Co-change: what else moves when this file moves. Jaccard overlap keeps out the files
+    # that change with everything (a README touched by half of all commits is not coupling).
     coupled = []
     total = max(1, len(commits))
     for other, n in sorted(state["cochange"].get(path, {}).items(), key=lambda kv: (-kv[1], kv[0])):
@@ -187,15 +206,24 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
         if other.rsplit("/", 1)[-1].lower().startswith(COUPLING_NOISE):
             continue  # everything "changes with" the changelog
         ratio = n / total
-        if n >= 2 and ratio >= 0.3:
-            coupled.append({"path": other, "count": n, "of": total, "ratio": round(ratio, 2)})
+        other_total = len(set(other_rec["commits"]))
+        overlap = n / max(1, total + other_total - n)
+        if n >= 2 and ratio >= 0.3 and overlap >= 0.25:
+            coupled.append({"path": other, "count": n, "of": total, "ratio": round(ratio, 2),
+                            "overlap": round(overlap, 2),
+                            "strong": n >= 3 and ratio >= 0.5 and overlap >= 0.4})
         if len(coupled) >= 6:
             break
-    strong = [c for c in coupled if c["count"] >= 3 and c["ratio"] >= 0.5]
+    strong = [c for c in coupled if c["strong"]]
+    prose = is_prose(path)
 
     score = _score(len(fixes), len(reverts), len(security), len(hotfixes), len(commits),
                    len(authors), len(tripwires), len(strong))
+    if not (fixes or reverts or security or hotfixes or tripwires):
+        score = min(score, CAUTION - 1)  # churn and coupling alone never make a file "caution"
     reasons = []
+    if prose:
+        score = 0  # documentation is not scored; its history is still shown
     if fixes:
         reasons.append(f"{len(fixes)} bug fix{'es' if len(fixes) != 1 else ''}")
     if reverts:
@@ -227,7 +255,7 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
 
     # Pitfalls: everything a future editor should know went wrong or is easy to get wrong.
     pitfalls = []
-    for event in timeline:
+    for event in counted:
         if event["reverted_by"]:
             by = commits_all.get(event["reverted_by"])
             reason = (by["why"][0] if by and by.get("why") else "")
@@ -275,9 +303,12 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
             continue
         owners.sort(key=lambda c: c["date"])
         short_name = sym["name"].rsplit(".", 1)[-1]
-        risky = {c["sha"]: brief(c) for c in owners if c["kind"] in RISKY_KINDS}
+        # A fix that *wrote* the function is its origin, not a fix to it.
+        origin_sha = owners[0]["sha"]
+        risky = {c["sha"]: brief(c) for c in owners if c["kind"] in RISKY_KINDS and c["sha"] != origin_sha}
         for event in hint_fixes.get(short_name, []):
-            risky.setdefault(event["sha"], event)
+            if event["sha"] != origin_sha and event["date"] >= owners[0]["date"][:10]:
+                risky.setdefault(event["sha"], event)
         history = sorted(risky.values(), key=lambda e: e["date"])
         container = any(o["name"].startswith(sym["name"] + ".") for o in blame.get("symbols", []))
         symbols.append({
@@ -305,6 +336,7 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
         "last": timeline[-1]["date"] if timeline else "",
         "score": score,
         "level": level_for(score),
+        "prose": prose,
         "reasons": reasons,
         "intent": intent,
         "docs": file_docs,
@@ -430,7 +462,7 @@ def graph(report: Dict, state: Dict, max_files: int = 250, max_commits: int = 40
     seen_pairs = set()
     for f in chosen:
         for link in f["coupled"]:
-            if link["path"] not in chosen_paths or link["count"] < 3 or link["ratio"] < 0.5:
+            if link["path"] not in chosen_paths or not link["strong"]:
                 continue  # only draw couplings strong enough to act on
             pair = tuple(sorted((f["path"], link["path"])))
             if pair in seen_pairs:

@@ -53,6 +53,24 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(classify.classify("feat(api): add export", "")["kind"], "feature")
         self.assertEqual(classify.classify("Bump version", "")["kind"], "other")
 
+    def test_lessons_from_a_real_repository(self):
+        """Misreadings found when the tool was first run on Reversibility Classes."""
+        kind = lambda subject: classify.classify(subject, "")["kind"]
+        # The word "security" or "spec" alone says nothing about what kind of change it is.
+        self.assertEqual(kind("Release v0.4.1: governance, security policy, pinned supply chain"), "release")
+        self.assertNotEqual(kind("Add security policy and CODEOWNERS"), "security")
+        self.assertNotEqual(kind("Spec 0.3.0: session egress guard, version-scoped rules"), "test")
+        self.assertNotEqual(kind("Clear errors for typos and bad files"), "docs")
+        # Hardening after a review is a security change even without the word "fix".
+        self.assertEqual(kind("Harden the session guard after a second red-team pass"), "security")
+        self.assertEqual(kind("Close second-review findings: launch spoofing, dedupe"), "security")
+        self.assertEqual(kind("Workflows: least-privilege tokens"), "security")
+
+    def test_bullets_stay_separate(self):
+        got = classify.classify("fix: scan", "- Never match a record by tool names alone\n- Parse npx launch commands because\n  wrappers hide the package\n")
+        self.assertEqual(got["warn"], ["Never match a record by tool names alone"])
+        self.assertEqual(got["why"], ["Parse npx launch commands because wrappers hide the package"])
+
     def test_refs_and_reasons(self):
         got = classify.classify(
             "fix: double charge on retry (#31)",
@@ -250,6 +268,36 @@ class IncrementalTest(unittest.TestCase):
             self.assertEqual(full, incremental)
             self.assertEqual(full["files"]["app/helpers.py"]["previous"], ["app/util.py"])
             self.assertEqual(full["files"]["app/core.py"]["reverts"], 1)
+
+    def test_docs_and_bystanders_are_not_fragile(self):
+        """A README touched by every fix, and a version file bumped alongside one, are not fragile."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "r")
+            os.makedirs(repo)
+            git(repo, "init", "-q", "-b", "main")
+            body = "".join(f"def f{i}():\n    return {i}\n\n\n" for i in range(6))
+            for name in ("a", "b", "c"):
+                write(repo, f"src/{name}.py", body)
+            write(repo, "version.py", "VERSION = '0'\n")
+            write(repo, "README.md", "# Demo\n\nline\n")
+            commit(repo, "Initial import")
+            for n in range(1, 5):
+                for name in ("a", "b", "c"):
+                    write(repo, f"src/{name}.py", body.replace("return 1", f"return 1 + {n}") + f"# pass {n}\n")
+                write(repo, "version.py", f"VERSION = '{n}'\n")
+                write(repo, "README.md", f"# Demo\n\nline\n\n" + "".join(f"Note {i}.\n\nMore.\n\n" for i in range(n)))
+                commit(repo, f"fix: wrong result in pass {n}", date=f"2021-02-0{n}T00:00:00+00:00")
+            write(repo, "src/new.py", "def g():\n    return 0\n")
+            commit(repo, "fix: add the missing helper", date="2021-03-01T00:00:00+00:00")
+            self.assertEqual(run_cli("dig", "--repo", repo)[0], 0)
+            files = model.build(cache.load(repo), "r", "2021-03-01")["files"]
+            self.assertEqual(files["src/a.py"]["fixes"], 4)
+            self.assertNotEqual(files["src/a.py"]["level"], "stable")
+            self.assertEqual((files["version.py"]["fixes"], files["version.py"]["level"]), (0, "stable"))  # one-line bystander
+            self.assertEqual((files["README.md"]["score"], files["README.md"]["prose"]), (0, True))
+            self.assertEqual(files["src/new.py"]["fixes"], 0)  # created by a fix, not fixed by it
+            partners = [c["path"] for c in files["src/a.py"]["coupled"] if c["strong"]]
+            self.assertIn("src/b.py", partners)
 
     def test_committing_the_output_does_not_cause_churn(self):
         """A nightly job that commits the index must not make the next night's index differ."""

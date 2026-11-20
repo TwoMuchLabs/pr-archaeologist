@@ -17,7 +17,7 @@ Scores are heuristics computed from commit messages, blame and co-change, not gr
 | File | Risk | Score | Fixes | Reverts | Commits | Why it is risky |
 |---|---|---:|---:|---:|---:|---|
 | `payments/retry.py` | 🔴 fragile | 83 | 5 | 1 | 10 | 5 bug fixes, 1 revert, 1 hotfix, 5 authors, 1 warning comment |
-| `payments/gateway.py` | 🔴 fragile | 80 | 2 | 1 | 6 | 2 bug fixes, 1 revert, 1 security change, 1 hotfix, 4 authors, tightly coupled to payments/retry.py, 1 warning comment |
+| `payments/gateway.py` | 🔴 fragile | 77 | 2 | 1 | 6 | 2 bug fixes, 1 revert, 1 security change, 1 hotfix, 4 authors, 1 warning comment |
 | `payments/ledger.py` | 🟠 caution | 57 | 3 | 0 | 6 | 3 bug fixes, 4 authors |
 | `workers/reconcile.py` | 🟠 caution | 33 | 1 | 0 | 3 | 1 bug fix, 3 authors |
 
@@ -34,12 +34,6 @@ Scores are heuristics computed from commit messages, blame and co-change, not gr
   - Decision: All amounts are stored and computed as integer minor units. Conversion happens once, at the API boundary, in `payments/currency.py`.
   - Consequences: Never introduce a float amount into `payments/ledger.py`. Currencies without minor units (JPY) must go through the `MINOR_UNITS` table.
   - Governs: `api/handlers.py`, `payments/currency.py`, `payments/ledger.py`
-
-## Hidden couplings
-
-Files that history says change together, whatever the import graph says.
-
-- `payments/gateway.py` ↔ `payments/retry.py` — changed together in 4 commits
 
 ## Files with history worth knowing
 
@@ -74,11 +68,10 @@ Files that history says change together, whatever the import graph says.
 - **Functions with a history:**
   - `backoff` (L14–18): 2024-03-18 `24c3d32` cap backoff at 30s so workers do not stall
   - `charge_with_retry` (L21–33): 2020-09-17 `2fb2215` Revert "Cache gateway auth token in retry loop (#71)"; 2021-03-08 `936a792` off-by-one in retry budget; 2023-05-09 `82b8ab0` race between webhook and retry loop recording a charge twice
-  - `record_result` (L36–40): 2023-05-09 `82b8ab0` race between webhook and retry loop recording a charge twice
 
 ### `payments/gateway.py`
 
-- **Risk:** 🔴 **fragile** (score 80/100) — 2 bug fixes, 1 revert, 1 security change, 1 hotfix, 4 authors, tightly coupled to payments/retry.py, 1 warning comment
+- **Risk:** 🔴 **fragile** (score 77/100) — 2 bug fixes, 1 revert, 1 security change, 1 hotfix, 4 authors, 1 warning comment
 - **History:** 6 commits, 2019-03-04 → 2021-11-02, by Priya Nair, Dev Patel, Maya Okafor, Tomás Reyes
 - **Why it exists:**
   - 2019-03-04 `0ee789d` Initial import of billing service — Maya Okafor
@@ -95,12 +88,11 @@ Files that history says change together, whatever the import graph says.
   - [warning] 2020-09-17 `2fb2215` Tokens must be fetched per attempt until the gateway supports refresh.
   - [security] 2021-11-02 `045d3b2` mask card numbers in gateway error logs — The full card number was written to logs when a charge failed.
   - [comment] 2019-03-04 `0ee789d` L27: HACK: the gateway answers 200 with an error body when it rate-limits us
-  - [coupling] Changes together with payments/retry.py (4 of 6 commits) — check it when editing this file.
   - [decision] 2019-06-25 `ADR-0002` Idempotency keys on every gateway write: Retries are safe only while the key is stable. Anything that changes how the key is built, or calls `payments/gateway.py` without one, can double-charge customers again.
 - **Usually changes with:** `payments/retry.py` (4/6)
 - **Functions with a history:**
   - `Timeout` (L13–14): 2019-04-02 `5f2d11e` retry only on timeouts, not on declined cards
-  - `Declined` (L17–18): 2019-04-02 `5f2d11e` retry only on timeouts, not on declined cards; 2019-06-11 `e3ce84c` double charge when a timed-out request had succeeded; 2020-09-17 `2fb2215` Revert "Cache gateway auth token in retry loop (#71)"
+  - `Declined` (L17–18): 2019-06-11 `e3ce84c` double charge when a timed-out request had succeeded; 2020-09-17 `2fb2215` Revert "Cache gateway auth token in retry loop (#71)"
   - `charge` (L21–32): 2019-06-11 `e3ce84c` double charge when a timed-out request had succeeded; 2020-09-17 `2fb2215` Revert "Cache gateway auth token in retry loop (#71)"; 2021-11-02 `045d3b2` mask card numbers in gateway error logs
 
 ### `payments/ledger.py`
@@ -125,8 +117,7 @@ Files that history says change together, whatever the import graph says.
 - **Usually changes with:** `api/handlers.py` (2/6), `payments/currency.py` (2/6), `workers/reconcile.py` (2/6)
 - **Functions with a history:**
   - `total` (L11–12): 2020-02-10 `6b97149` rounding drift in multi-currency totals; 2021-01-20 `02ec589` reconcile worker skipped refunds
-  - `entries` (L15–17): 2021-01-20 `02ec589` reconcile worker skipped refunds; 2023-05-09 `82b8ab0` race between webhook and retry loop recording a charge twice
-  - `record_once` (L20–26): 2023-05-09 `82b8ab0` race between webhook and retry loop recording a charge twice
+  - `entries` (L15–17): 2023-05-09 `82b8ab0` race between webhook and retry loop recording a charge twice
 
 ### `workers/reconcile.py`
 
@@ -155,26 +146,6 @@ Files that history says change together, whatever the import graph says.
   - [warning] 2023-05-09 `82b8ab0` Always use record_once() for charges; record() is for manual adjustments only.
 - **Functions with a history:**
   - `gateway_event` (L7–10): 2023-05-09 `82b8ab0` race between webhook and retry loop recording a charge twice
-
-### `payments/currency.py`
-
-- **Risk:** 🟢 **stable** (score 25/100) — 1 bug fix
-- **History:** 2 commits, 2020-02-10 → 2020-02-24, by Lena Fischer
-- **Why it exists:**
-  - 2020-02-10 `6b97149` rounding drift in multi-currency totals — Lena Fischer
-    - Floats lose cents: errors accumulated to a 37 EUR mismatch against settlement in January.
-    - Because of this, totals are now summed in minor units.
-  - 2020-02-24 `76fec1a` Adopt integer minor units everywhere (ADR-0003) — Lena Fischer
-    - We decided to convert once at the API boundary rather than in every module that touches money.
-- **Decisions and docs:**
-  - [ADR-0003: Money is integer minor units](docs/adr/0003-integer-minor-units.md) _Accepted_
-    - Decision: All amounts are stored and computed as integer minor units. Conversion happens once, at the API boundary, in `payments/currency.py`.
-- **Past pitfalls (read before editing):**
-  - [fix] 2020-02-10 `6b97149` rounding drift in multi-currency totals — Because of this, totals are now summed in minor units.
-  - [decision] 2020-02-24 `ADR-0003` Money is integer minor units: Never introduce a float amount into `payments/ledger.py`. Currencies without minor units (JPY) must go through the `MINOR_UNITS` table.
-- **Usually changes with:** `payments/ledger.py` (2/2)
-- **Functions with a history:**
-  - `to_minor` (L6–7): 2020-02-10 `6b97149` rounding drift in multi-currency totals
 
 ### `payments/idempotency.py`
 
@@ -208,6 +179,23 @@ Files that history says change together, whatever the import graph says.
 - **Past pitfalls (read before editing):**
   - [decision] 2020-02-24 `ADR-0003` Money is integer minor units: Never introduce a float amount into `payments/ledger.py`. Currencies without minor units (JPY) must go through the `MINOR_UNITS` table.
 - **Usually changes with:** `payments/ledger.py` (2/4)
+
+### `payments/currency.py`
+
+- **Risk:** 🟢 **stable** (score 11/100)
+- **History:** 2 commits, 2020-02-10 → 2020-02-24, by Lena Fischer
+- **Why it exists:**
+  - 2020-02-10 `6b97149` rounding drift in multi-currency totals — Lena Fischer
+    - Floats lose cents: errors accumulated to a 37 EUR mismatch against settlement in January.
+    - Because of this, totals are now summed in minor units.
+  - 2020-02-24 `76fec1a` Adopt integer minor units everywhere (ADR-0003) — Lena Fischer
+    - We decided to convert once at the API boundary rather than in every module that touches money.
+- **Decisions and docs:**
+  - [ADR-0003: Money is integer minor units](docs/adr/0003-integer-minor-units.md) _Accepted_
+    - Decision: All amounts are stored and computed as integer minor units. Conversion happens once, at the API boundary, in `payments/currency.py`.
+- **Past pitfalls (read before editing):**
+  - [decision] 2020-02-24 `ADR-0003` Money is integer minor units: Never introduce a float amount into `payments/ledger.py`. Currencies without minor units (JPY) must go through the `MINOR_UNITS` table.
+- **Usually changes with:** `payments/ledger.py` (2/2)
 
 ## Quiet files
 
