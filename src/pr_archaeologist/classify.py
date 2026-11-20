@@ -8,7 +8,7 @@ tickets), the sentences that explain *why*, and the sentences that warn.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z]+)(\([^)]*\))?(?P<bang>!)?:\s+(?P<desc>.+)$")
 
@@ -146,57 +146,72 @@ def _sentences(body: str) -> List[str]:
     return out
 
 
+CVE_RE = re.compile(r"cve-\d{4}-\d+", re.I)
+ADDS_RE = re.compile(r"\b(add|implement|support)\b", re.I)
+FEATURE_VERB_RE = re.compile(r"^(add|implement|support|allow|enable|create)\b", re.I)
+HOTFIX_SUBJECT_RE = re.compile(r"\bhotfix\b|\burgent\b", re.I)
+HOTFIX_BODY_RE = re.compile(r"^\s*hotfix\b", re.I | re.M)
+
+
+def _kind_before_content(subject: str, full: str, reverts: Optional[str]) -> Optional[str]:
+    """Kinds decided by what the commit is, before reading what it says it changed."""
+    if reverts or REVERT_SUBJECT_RE.match(subject) or subject.lower().startswith("revert:"):
+        return "revert"
+    trivial = TRIVIAL_FIX_RE.search(subject) or TRIVIAL_FIXED_RE.search(subject)
+    if trivial and not FIXES_REF_RE.search(full):
+        return "chore"
+    if RELEASE_RE.match(subject):
+        return "release"  # a bundle of earlier work: never evidence that one file was broken
+    return None
+
+
+def _kind_from_content(subject: str, full: str, conv_kind: Optional[str]) -> str:
+    """First match wins: the order of this table is the precedence between kinds."""
+    checks = (
+        ("security", lambda: SECURITY_RE.search(subject) or CVE_RE.search(full)),
+        (conv_kind, lambda: conv_kind),
+        ("fix", lambda: FIX_RE.search(subject) or FIXES_REF_RE.search(full)),
+        ("perf", lambda: PERF_RE.search(subject)),
+        ("design", lambda: DESIGN_RE.search(subject)),
+        ("refactor", lambda: REFACTOR_RE.search(subject)),
+        ("test", lambda: TEST_RE.search(subject) and not ADDS_RE.search(subject)),
+        ("docs", lambda: DOCS_RE.search(subject)),
+        ("feature", lambda: FEATURE_VERB_RE.match(subject)),
+    )
+    return next((kind for kind, matches in checks if matches()), "other")
+
+
+def _tags(subject: str, body: str, kind: str, breaking_bang: bool) -> List[str]:
+    tags = {
+        "breaking": breaking_bang or "BREAKING CHANGE" in body,
+        "design": kind in ("feature", "refactor", "other") and DESIGN_RE.search(subject),
+        "hotfix": HOTFIX_SUBJECT_RE.search(subject) or HOTFIX_BODY_RE.search(body),
+    }
+    return sorted(tag for tag, present in tags.items() if present)
+
+
+def _why_and_warn(sentences: List[str], kind: str) -> Tuple[List[str], List[str]]:
+    why: List[str] = []
+    warn: List[str] = []
+    for sent in sentences:
+        if WARN_RE.search(sent) and len(warn) < 2:
+            warn.append(sent)
+        elif WHY_RE.search(sent) and len(why) < 3:
+            why.append(sent)
+    # A fix with no explicit "because" still usually explains itself in its first sentence.
+    if not why and kind in ("fix", "security", "revert", "design"):
+        why = [s for s in sentences if s not in warn][:1]
+    return why, warn
+
+
 def classify(subject: str, body: str) -> Dict:
     """Return the derived reading of one commit message."""
     full = subject + "\n" + body
-    tags: List[str] = []
-    kind: Optional[str] = None
-
-    reverts = None
-    m = REVERT_SHA_RE.search(body)
-    if m:
-        reverts = m.group(1)
-    if reverts or REVERT_SUBJECT_RE.match(subject) or subject.lower().startswith("revert:"):
-        kind = "revert"
-
+    reverted = REVERT_SHA_RE.search(body)
+    reverts = reverted.group(1) if reverted else None
     conv = CONVENTIONAL.match(subject)
     conv_kind = KIND_BY_TYPE.get(conv.group("type").lower()) if conv else None
-    if conv and conv.group("bang"):
-        tags.append("breaking")
-    if "BREAKING CHANGE" in body:
-        tags.append("breaking")
-
-    trivial = TRIVIAL_FIX_RE.search(subject) or TRIVIAL_FIXED_RE.search(subject)
-    if kind is None and trivial and not FIXES_REF_RE.search(full):
-        kind = "chore"
-    if kind is None and RELEASE_RE.match(subject):
-        kind = "release"  # a bundle of earlier work: never evidence that one file was broken
-    if kind is None:
-        if SECURITY_RE.search(subject) or re.search(r"cve-\d{4}-\d+", full, re.I):
-            kind = "security"
-        elif conv_kind:
-            kind = conv_kind
-        elif FIX_RE.search(subject) or FIXES_REF_RE.search(full):
-            kind = "fix"
-        elif PERF_RE.search(subject):
-            kind = "perf"
-        elif DESIGN_RE.search(subject):
-            kind = "design"
-        elif REFACTOR_RE.search(subject):
-            kind = "refactor"
-        elif TEST_RE.search(subject) and not re.search(r"\b(add|implement|support)\b", subject, re.I):
-            kind = "test"
-        elif DOCS_RE.search(subject):
-            kind = "docs"
-        elif re.match(r"^(add|implement|support|allow|enable|create)\b", subject, re.I):
-            kind = "feature"
-        else:
-            kind = "other"
-
-    if kind in ("feature", "refactor", "other") and DESIGN_RE.search(subject):
-        tags.append("design")
-    if re.search(r"\bhotfix\b|\burgent\b", subject, re.I) or re.search(r"^\s*hotfix\b", body, re.I | re.M):
-        tags.append("hotfix")
+    kind = _kind_before_content(subject, full, reverts) or _kind_from_content(subject, full, conv_kind)
 
     prs = set(int(x) for x in PR_SQUASH_RE.findall(subject))
     prs.update(int(x) for x in PR_MERGE_RE.findall(subject))
@@ -204,24 +219,13 @@ def classify(subject: str, body: str) -> Dict:
     issues = set(int(x) for x in ISSUE_RE.findall(full)) - prs
     tickets = sorted({t for t in TICKET_RE.findall(full) if not t.startswith(NOT_TICKETS)})
 
-    why: List[str] = []
-    warn: List[str] = []
-    for sent in _sentences(body):
-        if WARN_RE.search(sent) and len(warn) < 2:
-            warn.append(sent)
-        elif WHY_RE.search(sent) and len(why) < 3:
-            why.append(sent)
-    # A fix with no explicit "because" still usually explains itself in its first sentence.
-    if not why and kind in ("fix", "security", "revert", "design"):
-        first = [s for s in _sentences(body) if s not in warn][:1]
-        why = first
-
-    lead = next((s for s in _sentences(body) if s not in warn), None)
+    sentences = _sentences(body)
+    why, warn = _why_and_warn(sentences, kind)
 
     return {
         "kind": kind,
-        "lead": lead,
-        "tags": sorted(set(tags)),
+        "lead": next((s for s in sentences if s not in warn), None),
+        "tags": _tags(subject, body, kind, bool(conv and conv.group("bang"))),
         "prs": sorted(prs),
         "issues": sorted(issues),
         "tickets": tickets,
