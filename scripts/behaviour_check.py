@@ -14,6 +14,8 @@ What one snapshot covers:
     directories, and for a path that does not exist
   - `hook --plain` at each level, the Claude Code hook event (twice, to cover
     "already briefed"), `install-hook --print`, and `status`
+  - `explain` and the hook before any cache exists, `explain` building the
+    cache itself, and the hook catching up after a new commit
   - `dig` again with nothing new, `dig --full --no-blame --max-commits` with a
     small graph, and `dig` after the last commit has been rewritten
 
@@ -184,6 +186,8 @@ def snapshot(repo, out, quick=False):
         with open(os.path.join(out, f"{stage}-cache.json"), "w", encoding="utf-8") as fh:
             json.dump(state, fh, indent=1, sort_keys=True)
 
+    save("explain-without-cache", run_cli(["explain", ".", "--repo", repo, "--no-refresh"]))
+    save("hook-without-cache", run_cli(["hook", "--plain", os.path.join(repo, "README.md")]))
     head = git(repo, "rev-parse", "HEAD")
     commits = int(git(repo, "rev-list", "--count", "HEAD") or 0)
     older = git(repo, "rev-parse", "--verify", "--quiet", f"HEAD~{min(STEP_BACK, commits // 2)}") if commits > 1 else ""
@@ -212,6 +216,14 @@ def snapshot(repo, out, quick=False):
                        env=dict(os.environ, **fixed), check=True)
         save("dig-rewritten", run_cli(["dig", "--repo", repo, "--json", "model.json"]))
         keep_outputs("rewritten")
+        # `explain` with no cache builds one; the hook then has to catch up on a new commit.
+        busiest = sample_files(report)[0]
+        shutil.rmtree(os.path.join(repo, ".pr-archaeologist"))
+        save("explain-builds-cache", run_cli(["explain", busiest, "--repo", repo]))
+        subprocess.run(["git", "-C", repo, "commit", "-q", "--allow-empty", "--no-verify", "-m", "fix: one more for the behaviour check"],
+                       env=dict(os.environ, **fixed), check=True)
+        save("hook-catches-up", run_cli(["hook", "--plain", os.path.join(repo, busiest), "--min-level", "any"]))
+        keep_outputs("caught-up")
 
     if quick:
         closing_runs()
