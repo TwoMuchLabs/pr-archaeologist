@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from .gitio import git
 
@@ -54,31 +54,45 @@ def _clip(text: str, limit: int = 420) -> str:
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
-def parse(path: str, text: str) -> Dict:
-    lines = text.splitlines()
-    title: Optional[str] = None
-    status: Optional[str] = None
-    date: Optional[str] = None
+FRONTMATTER_KEY_RE = re.compile(r"^(title|status|date)\s*:\s*(.+)$", re.I)
+
+
+def _frontmatter(lines: List[str]) -> Tuple[Dict[str, str], List[str]]:
+    """A leading `---` block: the title, status and date it sets, and the lines after it.
+
+    An unclosed block swallows the whole document, as before.
+    """
+    if not lines or lines[0].strip() != "---":
+        return {}, lines
+    close = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), len(lines))
+    meta: Dict[str, str] = {}
+    for line in lines[:close]:
+        m = FRONTMATTER_KEY_RE.match(line.rstrip())
+        if m:
+            key, value = m.group(1).lower(), m.group(2).strip().strip("\"'")
+            meta[key] = value[:10] if key == "date" else value
+    return meta, lines[close + 1:]
+
+
+def _section_of(heading: str) -> Optional[str]:
+    """Which of the sections we keep a heading opens, if any."""
+    low = heading.lower()
+    if low.startswith("status"):
+        return "status"
+    return next(
+        (key for key, words in WANTED.items() if any(low.startswith(w) or f" {w}" in low for w in words)),
+        None,
+    )
+
+
+def _scan_body(lines: List[str], meta: Dict[str, str]) -> Tuple[Optional[str], Optional[str], Optional[str], Dict[str, List[str]]]:
+    """Walk the document outside code fences: title, status, date and the text of each kept section."""
+    title, status, date = meta.get("title"), meta.get("status"), meta.get("date")
     sections: Dict[str, List[str]] = {}
     current: Optional[str] = None
     in_code = False
-    frontmatter = bool(lines) and lines[0].strip() == "---"
-    for idx, raw in enumerate(lines):
+    for raw in lines:
         line = raw.rstrip()
-        if frontmatter:
-            if idx > 0 and line.strip() == "---":
-                frontmatter = False
-            else:
-                m = re.match(r"^(title|status|date)\s*:\s*(.+)$", line, re.I)
-                if m:
-                    key, value = m.group(1).lower(), m.group(2).strip().strip("\"'")
-                    if key == "title":
-                        title = value
-                    elif key == "status":
-                        status = value
-                    else:
-                        date = value[:10]
-            continue
         if line.strip().startswith("```"):
             in_code = not in_code
             continue
@@ -89,11 +103,7 @@ def parse(path: str, text: str) -> Dict:
             heading = m.group(2).strip()
             if title is None and len(m.group(1)) == 1:
                 title = heading
-            low = heading.lower()
-            current = "status" if low.startswith("status") else next(
-                (key for key, words in WANTED.items() if any(low.startswith(w) or f" {w}" in low for w in words)),
-                None,
-            )
+            current = _section_of(heading)
             continue
         if status is None:
             m = STATUS_LINE_RE.match(line.strip())
@@ -107,6 +117,20 @@ def parse(path: str, text: str) -> Dict:
                 continue
         if current and line.strip():
             sections.setdefault(current, []).append(line.strip())
+    return title, status, date, sections
+
+
+def _is_adr(path: str, name: str, sections: Dict[str, List[str]], status: Optional[str]) -> bool:
+    has_shape = "decision" in sections and ("context" in sections or status)
+    if name.lower() in ("readme.md", "index.md", "template.md") and not has_shape:
+        return False
+    return bool(ADR_PATH_RE.search(path) or ADR_NAME_RE.match(name) or has_shape)
+
+
+def parse(path: str, text: str) -> Dict:
+    lines = text.splitlines()
+    meta, body = _frontmatter(lines)
+    title, status, date, sections = _scan_body(body, meta)
 
     if status is None and sections.get("status"):
         status = sections["status"][0]
@@ -117,12 +141,8 @@ def parse(path: str, text: str) -> Dict:
         date = m.group(1) if m else None
 
     name = path.rsplit("/", 1)[-1]
-    has_shape = "decision" in sections and ("context" in sections or status)
-    is_adr = bool(ADR_PATH_RE.search(path) or ADR_NAME_RE.match(name) or has_shape)
-    if name.lower() in ("readme.md", "index.md", "template.md") and not has_shape:
-        is_adr = False
+    is_adr = _is_adr(path, name, sections, status)
     number = re.match(r"^(?:adr[-_]?)?(\d{3,5})", name, re.I)
-
     if title and is_adr:
         title = re.sub(r"^(?:adr[-_ ]?)?\d{1,5}[.:)\-]\s+", "", title, flags=re.I)
 
