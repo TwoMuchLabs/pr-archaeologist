@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>pr-archaeologist — codebase archaeology</title>
+<style>
+:root{
+  --bg:#15120f; --panel:#1d1915; --raise:#27221c; --ink:#ece5d8; --muted:#9c9282; --line:#3a332a;
+  --fragile:#e0673f; --caution:#dba63f; --stable:#7fa57c; --design:#6fa0d8; --revert:#a98fdc;
+  --perf:#4fb6a8; --doc:#ecc968; --edge:rgba(236,229,216,.13);
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f5efe3; --panel:#fffaf0; --raise:#efe6d5; --ink:#2b241b; --muted:#7a6f5f; --line:#d9cdb8;
+    --fragile:#c2461f; --caution:#a8760f; --stable:#4c7a49; --design:#2f68ad; --revert:#6f52b5;
+    --perf:#1d8576; --doc:#9a7410; --edge:rgba(43,36,27,.16); }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans);overflow:hidden;display:flex;flex-direction:column}
+header{display:flex;gap:14px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.01em;white-space:nowrap}
+header h1 span{color:var(--muted);font-weight:400}
+header .meta{color:var(--muted);font-size:12px;flex:1;min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#search{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px 10px;width:230px;max-width:100%;font:inherit}
+#search:focus,button:focus-visible,.row:focus-visible{outline:2px solid var(--design);outline-offset:1px}
+main{flex:1;display:flex;min-height:0;position:relative}
+#stage{flex:1;position:relative;min-width:0}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}
+canvas.grabbing{cursor:grabbing}
+#controls{position:absolute;left:12px;top:12px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px;max-width:215px}
+#controls summary{cursor:pointer;font-weight:600;list-style:none}
+#controls summary::-webkit-details-marker{display:none}
+#controls label{display:flex;align-items:center;gap:7px;margin-top:7px;cursor:pointer}
+.sw{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+.sw.dia{border-radius:1px;transform:rotate(45deg)}
+.sw.dash{width:16px;height:0;border-top:2px dashed var(--caution);border-radius:0}
+#zoom{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:6px}
+button{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;cursor:pointer}
+#zoom button{width:34px;height:34px;font-size:17px}
+#time{position:absolute;left:12px;right:12px;bottom:12px;display:flex;gap:10px;align-items:center;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:12px}
+#time input{flex:1;accent-color:var(--caution);min-width:60px}
+#time button{padding:4px 10px}
+#time b{font-family:var(--mono);font-weight:500;min-width:62px}
+aside{width:400px;max-width:46vw;border-left:1px solid var(--line);background:var(--panel);overflow:auto;padding:16px 18px 40px}
+aside h2{font-size:15px;margin:0 0 4px;font-family:var(--mono);font-weight:600;word-break:break-all}
+aside h3{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:20px 0 7px;font-weight:600}
+aside p{margin:6px 0}
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;border:1px solid currentColor}
+.fragile{color:var(--fragile)} .caution{color:var(--caution)} .stable{color:var(--stable)}
+.muted{color:var(--muted)} .mono{font-family:var(--mono);font-size:12px}
+.row{display:block;width:100%;text-align:left;padding:8px 10px;margin:0 0 6px;border-radius:8px;background:var(--raise);border:1px solid transparent}
+.row:hover{border-color:var(--line)}
+.row .p{font-family:var(--mono);font-size:12px;word-break:break-all}
+.row .s{color:var(--muted);font-size:12px;margin-top:2px}
+ul.tl{list-style:none;margin:0;padding:0;border-left:2px solid var(--line)}
+ul.tl li{position:relative;padding:0 0 10px 14px}
+ul.tl li::before{content:"";position:absolute;left:-6px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--muted);border:2px solid var(--panel)}
+ul.tl li.fix::before,ul.tl li.security::before{background:var(--fragile)}
+ul.tl li.revert::before,ul.tl li.reverted::before{background:var(--revert)}
+ul.tl li.design::before{background:var(--design)} ul.tl li.perf::before{background:var(--perf)}
+ul.tl .d{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.pit{border-left:3px solid var(--fragile);padding:5px 0 5px 10px;margin:0 0 8px;background:linear-gradient(90deg,color-mix(in srgb,var(--fragile) 8%,transparent),transparent)}
+.pit.coupling,.pit.comment,.pit.warning{border-color:var(--caution)} .pit.reverted{border-color:var(--revert)} .pit.decision{border-color:var(--doc)}
+.pit .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--raise);padding:10px;border-radius:8px;font:12px/1.5 var(--mono);margin:8px 0}
+.quote{border-left:2px solid var(--line);padding-left:10px;color:var(--muted);margin:4px 0 8px}
+a.link{color:var(--design);cursor:pointer;text-decoration:none;font-family:var(--mono);font-size:12px;word-break:break-all}
+a.link:hover{text-decoration:underline}
+#close{float:right;padding:3px 9px;margin-left:8px}
+@media (max-width:760px){
+  main{flex-direction:column}
+  aside{width:auto;max-width:none;border-left:0;border-top:1px solid var(--line);height:46vh;flex:none}
+  header .meta{display:none} #search{flex:1;width:auto}
+  #controls{max-width:170px;padding:8px 10px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1><span>archaeology /</span> <b id="repo"></b></h1>
+  <div class="meta" id="meta"></div>
+  <input id="search" type="search" placeholder="Search files, commits, decisions  ( / )" autocomplete="off" aria-label="Search the graph">
+</header>
+<main>
+  <div id="stage">
+    <canvas id="c" aria-label="Knowledge graph of files, landmark commits and decision records"></canvas>
+    <details id="controls" open>
+      <summary>Layers and legend</summary>
+      <label><input type="checkbox" data-f="commit" checked><span class="sw" style="background:var(--fragile)"></span>Fixes and landmark commits</label>
+      <label><input type="checkbox" data-f="doc" checked><span class="sw dia" style="background:var(--doc)"></span>Decision records and docs</label>
+      <label><input type="checkbox" data-f="coupled" checked><span class="sw dash"></span>Change together</label>
+      <label><input type="checkbox" data-f="risky"><span class="sw" style="background:var(--caution)"></span>Only fragile and caution files</label>
+      <div class="muted" style="margin-top:9px;line-height:1.5">
+        <span class="sw" style="background:var(--fragile)"></span> fragile
+        <span class="sw" style="background:var(--caution);margin-left:6px"></span> caution
+        <span class="sw" style="background:var(--stable);margin-left:6px"></span> stable<br>
+        <span class="sw" style="background:var(--revert)"></span> revert
+        <span class="sw" style="background:var(--design);margin-left:6px"></span> design
+        <span class="sw" style="background:var(--perf);margin-left:6px"></span> perf<br>
+        Circle size = number of commits.
+      </div>
+    </details>
+    <div id="zoom">
+      <button id="zin" aria-label="Zoom in">+</button>
+      <button id="zout" aria-label="Zoom out">−</button>
+      <button id="fit" aria-label="Fit graph to screen" title="Fit">⤢</button>
+    </div>
+    <div id="time">
+      <button id="play" aria-label="Replay history">▶</button>
+      <span class="muted">History up to</span> <b id="tlabel"></b>
+      <input id="tslider" type="range" min="0" max="0" value="0" aria-label="Show history up to this month">
+    </div>
+  </div>
+  <aside id="panel" aria-live="polite"></aside>
+</main>
+<script id="data" type="application/json">{"edges":[{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:.github/workflows/ci.yml","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:.gitignore","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:LICENSE","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:agent/AGENTS-snippet.md","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:agent/nightly-prompt.md","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:agent/nightly.sh","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:examples/crontab.example","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:examples/github-actions/nightly-archaeology.yml","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:examples/make_demo_repo.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:examples/sample-output/dig.log","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:examples/sample-output/explain-deleted-soap_client.txt","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:examples/sample-output/explain-function-charge_with_retry.txt","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:examples/sample-output/explain-payments-ledger.json","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:examples/sample-output/explain-payments-retry.txt","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:pyproject.toml","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/__init__.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/__main__.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/blame.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/cache.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/classify.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/cli.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/docs.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/explain.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/gitio.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/graph_template.html","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/history.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/model.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/render_html.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/render_md.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:src/pr_archaeologist/symbols.py","type":"touch"},{"s":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","t":"f:tests/test_archaeologist.py","type":"touch"},{"s":"c:b7ce2b15688fc79d59c62d472731a65566b6580b","t":"f:.github/workflows/nightly-archaeology.yml","type":"touch"},{"s":"c:b7ce2b15688fc79d59c62d472731a65566b6580b","t":"f:examples/sample-output/explain-payments-ledger.json","type":"touch"},{"s":"c:b7ce2b15688fc79d59c62d472731a65566b6580b","t":"f:examples/sample-output/explain-payments-retry.txt","type":"touch"},{"s":"c:b7ce2b15688fc79d59c62d472731a65566b6580b","t":"f:src/pr_archaeologist/classify.py","type":"touch"},{"s":"c:b7ce2b15688fc79d59c62d472731a65566b6580b","t":"f:src/pr_archaeologist/explain.py","type":"touch"},{"s":"c:b7ce2b15688fc79d59c62d472731a65566b6580b","t":"f:src/pr_archaeologist/model.py","type":"touch"},{"s":"c:b7ce2b15688fc79d59c62d472731a65566b6580b","t":"f:src/pr_archaeologist/render_md.py","type":"touch"},{"s":"c:b7ce2b15688fc79d59c62d472731a65566b6580b","t":"f:tests/test_archaeologist.py","type":"touch"},{"s":"d:README.md","t":"f:agent/AGENTS-snippet.md","type":"explains"},{"s":"d:README.md","t":"f:agent/nightly-prompt.md","type":"explains"},{"s":"d:README.md","t":"f:agent/nightly.sh","type":"explains"},{"s":"d:README.md","t":"f:examples/crontab.example","type":"explains"},{"s":"d:README.md","t":"f:examples/github-actions/nightly-archaeology.yml","type":"explains"},{"s":"d:README.md","t":"f:examples/make_demo_repo.py","type":"explains"},{"s":"d:README.md","t":"f:examples/sample-output/explain-payments-retry.txt","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/blame.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/cache.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/classify.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/cli.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/docs.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/explain.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/history.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/model.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/render_html.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/render_md.py","type":"explains"},{"s":"d:README.md","t":"f:src/pr_archaeologist/symbols.py","type":"explains"},{"s":"d:docs/HOW_IT_WORKS.md","t":"f:src/pr_archaeologist/blame.py","type":"explains"},{"s":"d:docs/HOW_IT_WORKS.md","t":"f:src/pr_archaeologist/classify.py","type":"explains"},{"s":"d:docs/HOW_IT_WORKS.md","t":"f:src/pr_archaeologist/docs.py","type":"explains"},{"s":"d:docs/HOW_IT_WORKS.md","t":"f:src/pr_archaeologist/history.py","type":"explains"},{"s":"d:docs/HOW_IT_WORKS.md","t":"f:src/pr_archaeologist/model.py","type":"explains"},{"s":"d:docs/HOW_IT_WORKS.md","t":"f:src/pr_archaeologist/symbols.py","type":"explains"}],"files":{".github/workflows/ci.yml":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":".github/workflows/ci.yml","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":11,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"test","note":null,"reverted_by":null,"short":"54ca0ef","title":"Install from GitHub; test on Python 3.10, 3.12 and 3.13"}]},".github/workflows/nightly-archaeology.yml":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"b7ce2b1","source":"commit","text":"Tighten scoring after the first run on a known repository","why":["\"security\" and \"spec\" as bare words misclassified release and feature commits; hardening commits (\"harden\", \"red team\", \"fail-open\") were missed. Add a release kind and a stricter security vocabulary."]}],"last":"2026-11-20","level":"stable","path":".github/workflows/nightly-archaeology.yml","pitfalls":[{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution."},{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Documentation and licence files are not scored; churn alone never reaches caution."}],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"other","note":"born","reverted_by":null,"short":"b7ce2b1","title":"Tighten scoring after the first run on a known repository"}]},".gitignore":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":".gitignore","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"LICENSE":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"LICENSE","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":0,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"agent/AGENTS-snippet.md":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"agent/AGENTS-snippet.md","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":0,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"agent/nightly-prompt.md":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"agent/nightly-prompt.md","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":0,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"agent/nightly.sh":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"agent/nightly.sh","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"examples/crontab.example":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"examples/crontab.example","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"examples/github-actions/nightly-archaeology.yml":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"examples/github-actions/nightly-archaeology.yml","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":11,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"test","note":null,"reverted_by":null,"short":"54ca0ef","title":"Install from GitHub; test on Python 3.10, 3.12 and 3.13"}]},"examples/make_demo_repo.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"examples/make_demo_repo.py","pitfalls":[{"date":"2026-11-20","kind":"comment","ref":"a5488f7","text":"L77: WARNING: do not retry responses the gateway actually answered (see #19)\","},{"date":"2026-11-20","kind":"comment","ref":"a5488f7","text":"L116: HACK: the gateway answers 200 with an error body when it rate-limits us\")"}],"previous":[],"reasons":["2 warning comments"],"reverts":0,"score":22,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"examples/sample-output/dig.log":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"examples/sample-output/dig.log","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"examples/sample-output/explain-deleted-soap_client.txt":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"examples/sample-output/explain-deleted-soap_client.txt","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":0,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"examples/sample-output/explain-function-charge_with_retry.txt":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"examples/sample-output/explain-function-charge_with_retry.txt","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":0,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"examples/sample-output/explain-payments-ledger.json":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"examples/sample-output/explain-payments-ledger.json","pitfalls":[{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution."},{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Documentation and licence files are not scored; churn alone never reaches caution."}],"previous":[],"reasons":[],"reverts":0,"score":11,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"other","note":null,"reverted_by":null,"short":"b7ce2b1","title":"Tighten scoring after the first run on a known repository"}]},"examples/sample-output/explain-payments-retry.txt":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"examples/sample-output/explain-payments-retry.txt","pitfalls":[{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution."},{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Documentation and licence files are not scored; churn alone never reaches caution."}],"previous":[],"reasons":[],"reverts":0,"score":0,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"other","note":null,"reverted_by":null,"short":"b7ce2b1","title":"Tighten scoring after the first run on a known repository"}]},"pyproject.toml":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"pyproject.toml","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":11,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"test","note":null,"reverted_by":null,"short":"54ca0ef","title":"Install from GitHub; test on Python 3.10, 3.12 and 3.13"}]},"src/pr_archaeologist/__init__.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/__init__.py","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/__main__.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/__main__.py","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/blame.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"},{"label":"Doc","path":"docs/HOW_IT_WORKS.md","status":null,"title":"How pr-archaeologist works"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/blame.py","pitfalls":[{"date":"2026-11-20","kind":"comment","ref":"a5488f7","text":"L21: |//|/\\*|\\*|--|;|\u003c!--)\\s*(.*(?:\\b(?:HACK|XXX|FIXME|WARNING|WORKAROUND|IMPORTANT|CAUTION|DANGER)\\b|\""}],"previous":[],"reasons":["1 warning comment"],"reverts":0,"score":15,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/cache.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/cache.py","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/classify.py":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"},{"label":"Doc","path":"docs/HOW_IT_WORKS.md","status":null,"title":"How pr-archaeologist works"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/classify.py","pitfalls":[{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution."},{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Documentation and licence files are not scored; churn alone never reaches caution."}],"previous":[],"reasons":[],"reverts":0,"score":11,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"other","note":null,"reverted_by":null,"short":"b7ce2b1","title":"Tighten scoring after the first run on a known repository"}]},"src/pr_archaeologist/cli.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/cli.py","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/docs.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"},{"label":"Doc","path":"docs/HOW_IT_WORKS.md","status":null,"title":"How pr-archaeologist works"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/docs.py","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/explain.py":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/explain.py","pitfalls":[{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution."},{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Documentation and licence files are not scored; churn alone never reaches caution."}],"previous":[],"reasons":[],"reverts":0,"score":11,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"other","note":null,"reverted_by":null,"short":"b7ce2b1","title":"Tighten scoring after the first run on a known repository"}]},"src/pr_archaeologist/gitio.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/gitio.py","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/graph_template.html":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/graph_template.html","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/history.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"},{"label":"Doc","path":"docs/HOW_IT_WORKS.md","status":null,"title":"How pr-archaeologist works"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/history.py","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/model.py":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"},{"label":"Doc","path":"docs/HOW_IT_WORKS.md","status":null,"title":"How pr-archaeologist works"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/model.py","pitfalls":[{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution."},{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Documentation and licence files are not scored; churn alone never reaches caution."}],"previous":[],"reasons":[],"reverts":0,"score":11,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"other","note":null,"reverted_by":null,"short":"b7ce2b1","title":"Tighten scoring after the first run on a known repository"}]},"src/pr_archaeologist/render_html.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/render_html.py","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"src/pr_archaeologist/render_md.py":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/render_md.py","pitfalls":[{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution."},{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Documentation and licence files are not scored; churn alone never reaches caution."}],"previous":[],"reasons":[],"reverts":0,"score":11,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"other","note":null,"reverted_by":null,"short":"b7ce2b1","title":"Tighten scoring after the first run on a known repository"}]},"src/pr_archaeologist/symbols.py":{"authors":["Claude"],"commits":1,"coupled":[],"docs":[{"label":"Doc","path":"README.md","status":null,"title":"pr-archaeologist"},{"label":"Doc","path":"docs/HOW_IT_WORKS.md","status":null,"title":"How pr-archaeologist works"}],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"src/pr_archaeologist/symbols.py","pitfalls":[],"previous":[],"reasons":[],"reverts":0,"score":7,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"}]},"tests/test_archaeologist.py":{"authors":["Claude"],"commits":2,"coupled":[],"docs":[],"first":"2026-11-20","fixes":0,"intent":[{"author":"Claude","date":"2026-11-20","ref":"a5488f7","source":"commit","text":"Initial import of pr-archaeologist","why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]}],"last":"2026-11-20","level":"stable","path":"tests/test_archaeologist.py","pitfalls":[{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution."},{"date":"2026-11-20","kind":"warning","ref":"b7ce2b1","text":"Documentation and licence files are not scored; churn alone never reaches caution."}],"previous":[],"reasons":[],"reverts":0,"score":11,"symbols":[],"timeline":[{"author":"Claude","date":"2026-11-20","kind":"design","note":"born","reverted_by":null,"short":"a5488f7","title":"Initial import of pr-archaeologist"},{"author":"Claude","date":"2026-11-20","kind":"other","note":null,"reverted_by":null,"short":"b7ce2b1","title":"Tighten scoring after the first run on a known repository"}]}},"meta":{"commits":3,"files_deleted":0,"files_live":34,"first_commit":"2026-11-20","head":"b7ce2b15688fc79d59c62d472731a65566b6580b","head_date":"2026-11-20","kinds":{"design":1,"other":1,"test":1},"merges":0,"repo":"pr-archaeologist","thresholds":{"caution":30,"fragile":60},"truncated":false},"nodes":[{"date":"2026-11-20","id":"f:examples/make_demo_repo.py","label":"make_demo_repo.py","level":"stable","path":"examples/make_demo_repo.py","score":22,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/blame.py","label":"blame.py","level":"stable","path":"src/pr_archaeologist/blame.py","score":15,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:.github/workflows/ci.yml","label":"ci.yml","level":"stable","path":".github/workflows/ci.yml","score":11,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:examples/github-actions/nightly-archaeology.yml","label":"nightly-archaeology.yml","level":"stable","path":"examples/github-actions/nightly-archaeology.yml","score":11,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:examples/sample-output/explain-payments-ledger.json","label":"explain-payments-ledger.json","level":"stable","path":"examples/sample-output/explain-payments-ledger.json","score":11,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:pyproject.toml","label":"pyproject.toml","level":"stable","path":"pyproject.toml","score":11,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/classify.py","label":"classify.py","level":"stable","path":"src/pr_archaeologist/classify.py","score":11,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/explain.py","label":"explain.py","level":"stable","path":"src/pr_archaeologist/explain.py","score":11,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/model.py","label":"model.py","level":"stable","path":"src/pr_archaeologist/model.py","score":11,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/render_md.py","label":"render_md.py","level":"stable","path":"src/pr_archaeologist/render_md.py","score":11,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:tests/test_archaeologist.py","label":"test_archaeologist.py","level":"stable","path":"tests/test_archaeologist.py","score":11,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:.github/workflows/nightly-archaeology.yml","label":"nightly-archaeology.yml","level":"stable","path":".github/workflows/nightly-archaeology.yml","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:.gitignore","label":".gitignore","level":"stable","path":".gitignore","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:agent/nightly.sh","label":"nightly.sh","level":"stable","path":"agent/nightly.sh","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:examples/crontab.example","label":"crontab.example","level":"stable","path":"examples/crontab.example","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:examples/sample-output/dig.log","label":"dig.log","level":"stable","path":"examples/sample-output/dig.log","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/__init__.py","label":"__init__.py","level":"stable","path":"src/pr_archaeologist/__init__.py","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/__main__.py","label":"__main__.py","level":"stable","path":"src/pr_archaeologist/__main__.py","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/cache.py","label":"cache.py","level":"stable","path":"src/pr_archaeologist/cache.py","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/cli.py","label":"cli.py","level":"stable","path":"src/pr_archaeologist/cli.py","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/docs.py","label":"docs.py","level":"stable","path":"src/pr_archaeologist/docs.py","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/gitio.py","label":"gitio.py","level":"stable","path":"src/pr_archaeologist/gitio.py","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/graph_template.html","label":"graph_template.html","level":"stable","path":"src/pr_archaeologist/graph_template.html","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/history.py","label":"history.py","level":"stable","path":"src/pr_archaeologist/history.py","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/render_html.py","label":"render_html.py","level":"stable","path":"src/pr_archaeologist/render_html.py","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:src/pr_archaeologist/symbols.py","label":"symbols.py","level":"stable","path":"src/pr_archaeologist/symbols.py","score":7,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:examples/sample-output/explain-payments-retry.txt","label":"explain-payments-retry.txt","level":"stable","path":"examples/sample-output/explain-payments-retry.txt","score":0,"size":2,"type":"file"},{"date":"2026-11-20","id":"f:LICENSE","label":"LICENSE","level":"stable","path":"LICENSE","score":0,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:agent/AGENTS-snippet.md","label":"AGENTS-snippet.md","level":"stable","path":"agent/AGENTS-snippet.md","score":0,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:agent/nightly-prompt.md","label":"nightly-prompt.md","level":"stable","path":"agent/nightly-prompt.md","score":0,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:examples/sample-output/explain-deleted-soap_client.txt","label":"explain-deleted-soap_client.txt","level":"stable","path":"examples/sample-output/explain-deleted-soap_client.txt","score":0,"size":1,"type":"file"},{"date":"2026-11-20","id":"f:examples/sample-output/explain-function-charge_with_retry.txt","label":"explain-function-charge_with_retry.txt","level":"stable","path":"examples/sample-output/explain-function-charge_with_retry.txt","score":0,"size":1,"type":"file"},{"author":"Claude","body":"CLI and nightly workflow that reconstructs the historical \"why\" behind a\ncodebase from git log, git blame, commit messages and local Markdown/ADR\ndocs.\n\n- git history parser with rename following, revert linking and\n  function-level fix attribution\n- incremental cache so nightly runs only analyse new commits\n- self-contained interactive HTML knowledge graph and\n  CODEBASE_ARCHAEOLOGY.md index for coding agents\n- `pr-archaeologist explain \u003cpath\u003e` timeline of intent and past pitfalls\n- nightly script, cron and GitHub Actions examples, agent prompt\n- demo repo builder and sample output\n\nCo-Author","date":"2026-11-20","id":"c:a5488f7d0ab7bad3ca66c370a2363e1725eb21dd","issues":[],"kind":"design","label":"a5488f7","prs":[],"tickets":[],"title":"Initial import of pr-archaeologist","type":"commit","warn":[],"why":["CLI and nightly workflow that reconstructs the historical \"why\" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs."]},{"author":"Claude","body":"Running on TwoMuchLabs/reversibility-classes ranked its README as the most\nfragile file and labelled 44 of 83 files fragile or caution. Causes and\nfixes:\n\n- \"security\" and \"spec\" as bare words misclassified release and feature\n  commits; hardening commits (\"harden\", \"red team\", \"fail-open\") were\n  missed. Add a release kind and a stricter security vocabulary.\n- A fix no longer counts against a file it created, or one it changed by\n  two lines or fewer while mostly touching other files.\n- Coupling uses Jaccard overlap, so a README touched by most commits is\n  not coupled to everything.\n- Docume","date":"2026-11-20","id":"c:b7ce2b15688fc79d59c62d472731a65566b6580b","issues":[],"kind":"other","label":"b7ce2b1","prs":[],"tickets":[],"title":"Tighten scoring after the first run on a known repository","type":"commit","warn":["Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution.","Documentation and licence files are not scored; churn alone never reaches caution."],"why":[]},{"consequences":"","context":"","date":"","decision":"","id":"d:README.md","kind":"doc","label":"README.md","path":"README.md","status":null,"title":"pr-archaeologist","type":"doc"},{"consequences":"","context":"","date":"","decision":"","id":"d:docs/HOW_IT_WORKS.md","kind":"doc","label":"HOW_IT_WORKS.md","path":"docs/HOW_IT_WORKS.md","status":null,"title":"How pr-archaeologist works","type":"doc"}]}</script>
+<script>
+(function(){
+'use strict';
+var DATA = JSON.parse(document.getElementById('data').textContent);
+var $ = function(s){ return document.querySelector(s); };
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+var C = {};
+function readColors(){
+  var st = getComputedStyle(document.documentElement);
+  ['bg','panel','ink','muted','line','fragile','caution','stable','design','revert','perf','doc','edge']
+    .forEach(function(k){ C[k] = st.getPropertyValue('--' + k).trim(); });
+}
+readColors();
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(){ readColors(); draw(); });
+
+// ---------- data ----------
+var seed = 7;
+function rand(){ seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; }
+var nodes = DATA.nodes.map(function(n, i){
+  var o = {}; for (var k in n) o[k] = n[k];
+  o.i = i; o.x = 0; o.y = 0; o.vx = 0; o.vy = 0; o.adj = [];
+  o.r = n.type === 'file' ? Math.min(26, 6 + Math.sqrt(n.size || 1) * 2.4) : n.type === 'doc' ? 9 : 4.5;
+  o.hay = [n.label, n.path, n.title, n.author].filter(Boolean).join(' ').toLowerCase();
+  return o;
+});
+var byId = {}; nodes.forEach(function(n){ byId[n.id] = n; });
+var edges = DATA.edges.map(function(e){ return {s: byId[e.s], t: byId[e.t], type: e.type, w: e.w || 1}; })
+  .filter(function(e){ return e.s && e.t; });
+edges.forEach(function(e){ e.s.adj.push(e.t); e.t.adj.push(e.s); });
+
+var fileNodes = nodes.filter(function(n){ return n.type === 'file'; })
+  .sort(function(a, b){ return a.path < b.path ? -1 : 1; });
+var R0 = 70 + fileNodes.length * 9;
+fileNodes.forEach(function(n, i){
+  var a = i / Math.max(1, fileNodes.length) * Math.PI * 2;
+  n.x = Math.cos(a) * R0 * (0.75 + rand() * 0.25); n.y = Math.sin(a) * R0 * (0.75 + rand() * 0.25);
+});
+nodes.forEach(function(n){
+  if (n.type === 'file') return;
+  var f = n.adj.filter(function(m){ return m.type === 'file'; });
+  if (f.length){
+    n.x = f.reduce(function(s, m){ return s + m.x; }, 0) / f.length + (rand() - .5) * 60;
+    n.y = f.reduce(function(s, m){ return s + m.y; }, 0) / f.length + (rand() - .5) * 60;
+  } else { n.x = (rand() - .5) * R0; n.y = (rand() - .5) * R0; }
+});
+
+// ---------- simulation ----------
+var REST = {touch: 74, explains: 110, coupled: 170, revert: 44};
+var SPRING = {touch: .07, explains: .04, coupled: .02, revert: .09};
+var alpha = 1, dragged = null, GRAVITY = .006 / (1 + nodes.length / 400);
+function tick(){
+  var n = nodes.length, i, j, a, b, dx, dy, d2, d, f;
+  for (i = 0; i < n; i++){
+    a = nodes[i];
+    for (j = i + 1; j < n; j++){
+      b = nodes[j]; dx = a.x - b.x; dy = a.y - b.y; d2 = dx * dx + dy * dy;
+      if (d2 > 202500) continue;
+      if (d2 < 1){ dx = rand() - .5; dy = rand() - .5; d2 = 1; }
+      f = ((a.type === 'file' && b.type === 'file') ? 2600 : (a.type === 'commit' && b.type === 'commit') ? 420 : 900) / d2 * alpha;
+      d = Math.sqrt(d2); dx /= d; dy /= d;
+      a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+    }
+  }
+  for (i = 0; i < edges.length; i++){
+    var e = edges[i]; dx = e.t.x - e.s.x; dy = e.t.y - e.s.y; d = Math.sqrt(dx * dx + dy * dy) || 1;
+    f = (d - REST[e.type] - (e.s.r + e.t.r) * .5) * SPRING[e.type] * alpha;
+    dx = dx / d * f; dy = dy / d * f;
+    e.s.vx += dx; e.s.vy += dy; e.t.vx -= dx; e.t.vy -= dy;
+  }
+  for (i = 0; i < n; i++){
+    a = nodes[i];
+    if (a === dragged){ a.vx = a.vy = 0; continue; }
+    var g = GRAVITY * (a.adj.length ? 1 : 4) * alpha; a.vx = (a.vx - a.x * g) * .8; a.vy = (a.vy - a.y * g) * .8;
+    var sp = Math.sqrt(a.vx * a.vx + a.vy * a.vy); if (sp > 30){ a.vx *= 30 / sp; a.vy *= 30 / sp; }
+    a.x += a.vx; a.y += a.vy;
+  }
+  alpha *= .991;
+}
+var warm = Math.max(40, Math.min(320, Math.floor(5e7 / Math.max(1, nodes.length * nodes.length))));
+for (var w = 0; w < warm; w++) tick();
+alpha = Math.min(alpha, .25);
+
+// ---------- view state ----------
+var canvas = $('#c'), ctx = canvas.getContext('2d'), W = 0, H = 0, dpr = 1;
+var view = {x: 0, y: 0, k: 1};
+var filters = {commit: true, doc: true, coupled: true, risky: false};
+var selected = null, hover = null, query = '', cutoff = null;
+
+function visible(n){
+  if (cutoff && n.date && n.date.slice(0, 7) > cutoff) return false;
+  if (n.type === 'commit' && !filters.commit) return false;
+  if (n.type === 'doc' && !filters.doc) return false;
+  if (n.type === 'file' && filters.risky && n.level === 'stable') return false;
+  if (filters.risky && n.type !== 'file' && !n.adj.some(function(m){ return m.type === 'file' && m.level !== 'stable'; })) return false;
+  return true;
+}
+function colorOf(n){
+  if (n.type === 'file') return C[n.level];
+  if (n.type === 'doc') return C.doc;
+  return {fix: C.fragile, security: C.fragile, revert: C.revert, reverted: C.revert, design: C.design, perf: C.perf}[n.kind] || C.muted;
+}
+function resize(){
+  var rect = canvas.parentNode.getBoundingClientRect();
+  dpr = window.devicePixelRatio || 1; W = rect.width; H = rect.height;
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+}
+function fit(){
+  var vis = nodes.filter(visible); if (!vis.length) vis = nodes;
+  if (!vis.length) return;
+  var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  vis.forEach(function(n){ x0 = Math.min(x0, n.x - n.r); x1 = Math.max(x1, n.x + n.r); y0 = Math.min(y0, n.y - n.r); y1 = Math.max(y1, n.y + n.r); });
+  var padX = 60, padTop = 60, padBottom = 90;
+  view.k = Math.max(.08, Math.min(2.2, Math.min((W - padX * 2) / Math.max(1, x1 - x0), (H - padTop - padBottom) / Math.max(1, y1 - y0))));
+  view.x = W / 2 - (x0 + x1) / 2 * view.k; view.y = (padTop + (H - padBottom)) / 2 - (y0 + y1) / 2 * view.k;
+}
+function draw(){
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  ctx.translate(view.x, view.y); ctx.scale(view.k, view.k);
+  var focus = selected || hover, focusSet = null;
+  if (focus){ focusSet = {}; focusSet[focus.id] = 1; focus.adj.forEach(function(m){ focusSet[m.id] = 1; }); }
+  var q = query;
+  function dim(n){ if (focusSet && !focusSet[n.id]) return true; if (q && n.hay.indexOf(q) < 0) return true; return false; }
+
+  edges.forEach(function(e){
+    if (!visible(e.s) || !visible(e.t)) return;
+    if (e.type === 'coupled' && !filters.coupled) return;
+    var on = focus && (e.s === focus || e.t === focus);
+    ctx.globalAlpha = (focusSet && !on) ? .12 : (q && (dim(e.s) || dim(e.t)) ? .12 : 1);
+    ctx.beginPath(); ctx.moveTo(e.s.x, e.s.y); ctx.lineTo(e.t.x, e.t.y);
+    ctx.setLineDash(e.type === 'coupled' ? [5 / view.k, 4 / view.k] : []);
+    ctx.lineWidth = (e.type === 'coupled' ? Math.min(3.5, .8 + e.w * .35) : on ? 1.6 : 1) / view.k;
+    ctx.strokeStyle = e.type === 'coupled' ? C.caution : e.type === 'explains' ? C.doc : e.type === 'revert' ? C.revert : (on ? C.ink : C.edge);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+  var labels = [];
+  nodes.forEach(function(n){
+    if (!visible(n)) return;
+    var d = dim(n); ctx.globalAlpha = d ? .16 : 1; ctx.fillStyle = colorOf(n);
+    ctx.beginPath();
+    if (n.type === 'doc'){ ctx.moveTo(n.x, n.y - n.r); ctx.lineTo(n.x + n.r, n.y); ctx.lineTo(n.x, n.y + n.r); ctx.lineTo(n.x - n.r, n.y); ctx.closePath(); }
+    else ctx.arc(n.x, n.y, n.r, 0, 6.2832);
+    ctx.fill();
+    if (n === selected || n === hover){ ctx.lineWidth = 2.5 / view.k; ctx.strokeStyle = C.ink; ctx.stroke(); }
+    var forced = n === selected || n === hover;
+    var near = focusSet && focusSet[n.id] && (n.type !== 'commit' || view.k >= 1.05);
+    var big = n.type !== 'commit' && view.k >= .12;
+    if (!d && (forced || near || big || (n.type === 'commit' && view.k > 2.2)))
+      labels.push({n: n, p: forced ? 3 : near ? 2 : 1});
+  });
+  // Labels are drawn last, biggest first, skipping any that would overlap one already placed.
+  labels.sort(function(a, b){ return b.p - a.p || b.n.r - a.n.r; });
+  var placed = [];
+  labels.forEach(function(l){
+    var n = l.n, size = (n === selected ? 12.5 : 11.5) / view.k;
+    ctx.font = (n === selected ? '600 ' : '') + size + 'px ' + (n.type === 'doc' ? 'system-ui,sans-serif' : 'ui-monospace,Menlo,Consolas,monospace');
+    var w = ctx.measureText(n.label).width, y = n.y + n.r + size * 1.15;
+    var box = [n.x - w / 2 - 2 / view.k, y - size, n.x + w / 2 + 2 / view.k, y + size * .3];
+    if (l.p < 3 && placed.some(function(o){ return box[0] < o[2] && box[2] > o[0] && box[1] < o[3] && box[3] > o[1]; })) return;
+    placed.push(box);
+    ctx.globalAlpha = 1; ctx.fillStyle = C.ink; ctx.textAlign = 'center';
+    ctx.lineWidth = 3 / view.k; ctx.strokeStyle = C.bg; ctx.lineJoin = 'round';
+    ctx.strokeText(n.label, n.x, y); ctx.fillText(n.label, n.x, y);
+  });
+  ctx.globalAlpha = 1;
+}
+var running = false;
+function loop(){
+  if (alpha > .012 || dragged){ tick(); draw(); requestAnimationFrame(loop); } else { running = false; draw(); }
+}
+function kick(a){ alpha = Math.max(alpha, a); if (!running){ running = true; requestAnimationFrame(loop); } }
+
+// ---------- pointer interaction ----------
+function toWorld(px, py){ return {x: (px - view.x) / view.k, y: (py - view.y) / view.k}; }
+function hit(px, py){
+  var p = toWorld(px, py), best = null, bd = 1e9;
+  for (var i = nodes.length - 1; i >= 0; i--){
+    var n = nodes[i]; if (!visible(n)) continue;
+    var d = Math.hypot(n.x - p.x, n.y - p.y) - n.r;
+    if (d < 7 / view.k && d < bd){ bd = d; best = n; }
+  }
+  return best;
+}
+var pointers = {}, gesture = null;
+function local(e){ var r = canvas.getBoundingClientRect(); return {x: e.clientX - r.left, y: e.clientY - r.top}; }
+canvas.addEventListener('pointerdown', function(e){
+  canvas.setPointerCapture(e.pointerId); var p = local(e); pointers[e.pointerId] = p;
+  var ids = Object.keys(pointers);
+  if (ids.length === 2){
+    var a = pointers[ids[0]], b = pointers[ids[1]];
+    gesture = {type: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y), k: view.k, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, vx: view.x, vy: view.y};
+    dragged = null; return;
+  }
+  var n = hit(p.x, p.y);
+  gesture = {type: n ? 'node' : 'pan', node: n, sx: p.x, sy: p.y, vx: view.x, vy: view.y, moved: false};
+  canvas.classList.add('grabbing');
+});
+canvas.addEventListener('pointermove', function(e){
+  var p = local(e);
+  if (!pointers[e.pointerId]){ var h = hit(p.x, p.y); if (h !== hover){ hover = h; canvas.style.cursor = h ? 'pointer' : ''; draw(); } return; }
+  pointers[e.pointerId] = p;
+  if (!gesture) return;
+  if (gesture.type === 'pinch'){
+    var ids = Object.keys(pointers); if (ids.length < 2) return;
+    var a = pointers[ids[0]], b = pointers[ids[1]], d = Math.hypot(a.x - b.x, a.y - b.y);
+    var k = Math.max(.08, Math.min(5, gesture.k * d / Math.max(1, gesture.d)));
+    view.x = gesture.cx - (gesture.cx - gesture.vx) * k / gesture.k; view.y = gesture.cy - (gesture.cy - gesture.vy) * k / gesture.k; view.k = k;
+    draw(); return;
+  }
+  if (Math.hypot(p.x - gesture.sx, p.y - gesture.sy) > 4) gesture.moved = true;
+  if (!gesture.moved) return;
+  if (gesture.type === 'node'){
+    var wpt = toWorld(p.x, p.y); dragged = gesture.node; dragged.x = wpt.x; dragged.y = wpt.y; kick(.18);
+  } else { view.x = gesture.vx + p.x - gesture.sx; view.y = gesture.vy + p.y - gesture.sy; draw(); }
+});
+function release(e){
+  delete pointers[e.pointerId]; canvas.classList.remove('grabbing');
+  if (gesture && gesture.type !== 'pinch' && !gesture.moved) select(gesture.node || null);
+  if (!Object.keys(pointers).length){ gesture = null; dragged = null; }
+}
+canvas.addEventListener('pointerup', release);
+canvas.addEventListener('pointercancel', release);
+canvas.addEventListener('pointerleave', function(){ if (hover){ hover = null; draw(); } });
+function zoomAt(px, py, factor){
+  var k = Math.max(.08, Math.min(5, view.k * factor));
+  view.x = px - (px - view.x) * k / view.k; view.y = py - (py - view.y) * k / view.k; view.k = k; draw();
+}
+canvas.addEventListener('wheel', function(e){ e.preventDefault(); var p = local(e); zoomAt(p.x, p.y, Math.exp(-e.deltaY * .0015)); }, {passive: false});
+$('#zin').onclick = function(){ zoomAt(W / 2, H / 2, 1.35); };
+$('#zout').onclick = function(){ zoomAt(W / 2, H / 2, 1 / 1.35); };
+$('#fit').onclick = function(){ fit(); draw(); };
+
+// ---------- side panel ----------
+var panel = $('#panel');
+function plural(n, word, suffix){ return n + ' ' + word + (n === 1 ? '' : (suffix || 's')); }
+function badge(level, score){ return '<span class="badge ' + esc(level) + '">' + esc(level) + ' ' + esc(score) + '/100</span>'; }
+function link(id, text){ return '<a class="link" data-go="' + esc(id) + '" href="#' + encodeURIComponent(id) + '">' + esc(text) + '</a>'; }
+function quotes(list){ return (list || []).map(function(t){ return '<div class="quote">' + esc(t) + '</div>'; }).join(''); }
+
+function home(){
+  var m = DATA.meta, files = nodes.filter(function(n){ return n.type === 'file'; })
+    .sort(function(a, b){ return b.score - a.score || b.size - a.size; });
+  var h = '<h3 style="margin-top:0">Read this first</h3>' +
+    '<p>Each circle is a file, sized by how often it changed and coloured by how fragile its history says it is. ' +
+    'Small dots are the commits that explain it: fixes, reverts and redesigns. Diamonds are decision records.</p>' +
+    '<p class="muted">Select anything to read why it exists. Drag the slider to replay the history.</p>' +
+    '<h3>Most fragile files</h3>';
+  files.slice(0, 14).forEach(function(n){
+    var d = DATA.files[n.path] || {};
+    h += '<button class="row" data-go="' + esc(n.id) + '"><div class="p">' + esc(n.path) + '</div><div class="s"><span class="' + esc(n.level) + '">● ' +
+      esc(n.level) + ' ' + esc(n.score) + '</span> · ' + esc((d.reasons || []).join(', ') || (d.commits + ' commits')) + '</div></button>';
+  });
+  h += '<p class="muted" style="margin-top:18px">' + esc(m.commits) + ' commits · ' + esc(m.files_live) + ' live files · up to ' +
+    esc((m.head || '').slice(0, 7)) + ' (' + esc(m.head_date) + ')</p>';
+  panel.innerHTML = h;
+}
+function filePanel(n){
+  var f = DATA.files[n.path]; if (!f) return '';
+  var h = '<button id="close" aria-label="Close">✕</button><h2>' + esc(f.path) + '</h2><p>' + badge(f.level, f.score) + '</p>' +
+    '<p class="muted">' + esc(plural(f.commits, 'commit')) + ' · ' + esc(plural(f.fixes, 'fix', 'es')) + ' · ' + esc(plural(f.reverts, 'revert')) + ' · ' + esc(f.first) + ' → ' + esc(f.last) +
+    '<br>' + esc((f.authors || []).join(', ')) + '</p>';
+  if (f.previous && f.previous.length) h += '<p class="muted mono">formerly ' + esc(f.previous.join(', ')) + '</p>';
+  if (f.reasons.length) h += '<p>' + esc(f.reasons.join(' · ')) + '</p>';
+  h += '<h3>Why it exists</h3>';
+  f.intent.forEach(function(it){
+    h += '<p><span class="mono muted">' + esc(it.date) + ' ' + esc(it.ref) + '</span><br>' + esc(it.text) + ' <span class="muted">— ' + esc(it.author) + '</span></p>' + quotes(it.why);
+  });
+  if (f.docs.length){
+    h += '<h3>Decisions and docs</h3>';
+    f.docs.forEach(function(d){ h += '<p>' + link('d:' + d.path, d.label + ': ' + d.title) + (d.status ? ' <span class="muted">(' + esc(d.status) + ')</span>' : '') + '</p>'; });
+  }
+  if (f.pitfalls.length){
+    h += '<h3>Past pitfalls</h3>';
+    f.pitfalls.slice().reverse().forEach(function(p){
+      h += '<div class="pit ' + esc(p.kind) + '"><div class="k">' + esc(p.kind) + ' ' + esc(p.date) + ' ' + esc(p.ref) + '</div>' + esc(p.text) + '</div>';
+    });
+  }
+  if (f.coupled.length){
+    h += '<h3>Usually changes with</h3>';
+    f.coupled.forEach(function(c){ h += '<p>' + link('f:' + c.path, c.path) + ' <span class="muted">' + esc(c.count) + ' of ' + esc(c.of) + ' commits</span></p>'; });
+  }
+  var syms = f.symbols.filter(function(s){ return s.fixes.length; });
+  if (syms.length){
+    h += '<h3>Functions with a history</h3>';
+    syms.forEach(function(s){
+      h += '<p><span class="mono">' + esc(s.name) + '</span> <span class="muted">L' + esc(s.start) + '–' + esc(s.end) + '</span></p>';
+      s.fixes.forEach(function(e){ h += '<div class="quote"><span class="mono">' + esc(e.date) + ' ' + esc(e.short) + '</span> ' + esc(e.title) + '</div>'; });
+    });
+  }
+  h += '<h3>Timeline</h3><ul class="tl">';
+  f.timeline.slice().reverse().forEach(function(e){
+    var cls = e.reverted_by ? 'reverted' : e.kind;
+    h += '<li class="' + esc(cls) + '"><div class="d">' + esc(e.date) + ' · ' + esc(e.short) + ' · ' + esc(e.note || e.kind) +
+      (e.reverted_by ? ' · later reverted' : '') + '</div>' + esc(e.title) + ' <span class="muted">— ' + esc(e.author) + '</span></li>';
+  });
+  return h + '</ul>';
+}
+function commitPanel(n){
+  var refs = [].concat((n.prs || []).map(function(x){ return 'PR #' + x; }), (n.issues || []).map(function(x){ return 'issue #' + x; }), n.tickets || []);
+  var h = '<button id="close" aria-label="Close">✕</button><h2>' + esc(n.label) + '</h2><p><span class="badge" style="color:' + esc(colorOf(n)) + '">' + esc(n.kind) + '</span></p>' +
+    '<p>' + esc(n.title) + '</p><p class="muted">' + esc(n.date) + ' · ' + esc(n.author) + (refs.length ? ' · ' + esc(refs.join(', ')) : '') + '</p>';
+  if (n.why && n.why.length) h += '<h3>Why</h3>' + quotes(n.why);
+  if (n.warn && n.warn.length) h += '<h3>Warnings</h3>' + quotes(n.warn);
+  if (n.body) h += '<h3>Message</h3><pre>' + esc(n.body) + '</pre>';
+  h += '<h3>Touches</h3>';
+  n.adj.forEach(function(m){ h += '<p>' + link(m.id, m.path || m.label) + '</p>'; });
+  return h;
+}
+function docPanel(n){
+  var h = '<button id="close" aria-label="Close">✕</button><h2>' + esc(n.title) + '</h2><p><span class="badge" style="color:var(--doc)">' + esc(n.kind === 'adr' ? n.label : 'doc') + '</span> ' +
+    '<span class="muted">' + esc(n.status || '') + ' ' + esc(n.date || '') + '</span></p><p class="mono muted">' + esc(n.path) + '</p>';
+  [['Context', n.context], ['Decision', n.decision], ['Consequences', n.consequences]].forEach(function(s){
+    if (s[1]) h += '<h3>' + s[0] + '</h3><p>' + esc(s[1]) + '</p>';
+  });
+  if (n.adj.length){ h += '<h3>Governs</h3>'; n.adj.forEach(function(m){ h += '<p>' + link(m.id, m.path || m.label) + '</p>'; }); }
+  return h;
+}
+function select(n, center){
+  selected = n;
+  if (!n){ home(); history.replaceState(null, '', location.pathname + location.search); draw(); return; }
+  panel.innerHTML = n.type === 'file' ? filePanel(n) : n.type === 'commit' ? commitPanel(n) : docPanel(n);
+  panel.scrollTop = 0;
+  history.replaceState(null, '', '#' + encodeURIComponent(n.id));
+  if (center){ view.k = Math.max(view.k, 1.15); view.x = W / 2 - n.x * view.k; view.y = H / 2 - n.y * view.k; }
+  draw();
+}
+panel.addEventListener('click', function(e){
+  var t = e.target.closest('[data-go],#close'); if (!t) return;
+  e.preventDefault();
+  if (t.id === 'close') return select(null);
+  var n = byId[t.getAttribute('data-go')];
+  if (n){ if (!visible(n)){ cutoff = null; slider.value = slider.max; tlabel.textContent = months[months.length - 1] || ''; } select(n, true); }
+});
+
+// ---------- search, filters, time ----------
+var search = $('#search');
+search.addEventListener('input', function(){ query = search.value.trim().toLowerCase(); draw(); });
+search.addEventListener('keydown', function(e){
+  if (e.key !== 'Enter' || !query) return;
+  var m = nodes.filter(function(n){ return visible(n) && n.hay.indexOf(query) >= 0; })
+    .sort(function(a, b){ return (a.type === 'file' ? 0 : 1) - (b.type === 'file' ? 0 : 1) || (b.score || 0) - (a.score || 0); })[0];
+  if (m) select(m, true);
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === '/' && document.activeElement !== search){ e.preventDefault(); search.focus(); }
+  if (e.key === 'Escape'){ search.value = ''; query = ''; search.blur(); select(null); }
+});
+document.querySelectorAll('#controls input').forEach(function(box){
+  box.addEventListener('change', function(){ filters[box.getAttribute('data-f')] = box.checked; draw(); });
+});
+var months = [];
+(function(){
+  var dates = nodes.map(function(n){ return n.date && n.date.slice(0, 7); }).filter(Boolean).sort();
+  if (!dates.length) return;
+  var y = +dates[0].slice(0, 4), m = +dates[0].slice(5, 7), last = dates[dates.length - 1];
+  var headMonth = (DATA.meta.head_date || '').slice(0, 7); if (headMonth > last) last = headMonth;
+  for (var guard = 0; guard < 1200; guard++){
+    var s = y + '-' + (m < 10 ? '0' : '') + m; months.push(s); if (s >= last) break;
+    m++; if (m > 12){ m = 1; y++; }
+  }
+})();
+var slider = $('#tslider'), tlabel = $('#tlabel'), playing = null;
+slider.max = Math.max(0, months.length - 1); slider.value = slider.max; tlabel.textContent = months[months.length - 1] || 'n/a';
+function setTime(i){
+  i = Math.max(0, Math.min(months.length - 1, i)); slider.value = i;
+  cutoff = i >= months.length - 1 ? null : months[i]; tlabel.textContent = months[i] || 'n/a'; draw();
+}
+slider.addEventListener('input', function(){ setTime(+slider.value); });
+$('#play').onclick = function(){
+  if (playing){ clearInterval(playing); playing = null; this.textContent = '▶'; return; }
+  var btn = this, i = +slider.value >= months.length - 1 ? 0 : +slider.value;
+  btn.textContent = '❚❚';
+  var step = Math.max(1, Math.round(months.length / 90));
+  playing = setInterval(function(){
+    i += step; setTime(i);
+    if (i >= months.length - 1){ clearInterval(playing); playing = null; btn.textContent = '▶'; }
+  }, 110);
+};
+if (window.matchMedia && window.matchMedia('(max-width:760px)').matches) $('#controls').removeAttribute('open');
+
+// ---------- boot ----------
+$('#repo').textContent = DATA.meta.repo;
+$('#meta').textContent = DATA.meta.commits + ' commits · ' + DATA.meta.first_commit + ' → ' + DATA.meta.head_date + ' · ' + DATA.meta.files_live + ' files';
+window.addEventListener('resize', function(){ resize(); draw(); });
+resize(); fit(); home();
+var start = byId[decodeURIComponent(location.hash.slice(1))];
+if (start) select(start, true);
+kick(.2);
+})();
+</script>
+</body>
+</html>
