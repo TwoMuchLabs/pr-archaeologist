@@ -83,6 +83,27 @@ def _report(repo: str, state: Dict) -> Dict:
     return model.build(state, os.path.basename(repo.rstrip("/")), head_date, _ignore_patterns(state))
 
 
+def _say_summary(say, done: Dict, report: Dict, wrote: List[str], seconds: float) -> None:
+    """The run log: what was read, how the files rate, what was written."""
+    hist, meta = done["history"], report["meta"]
+    counts = {lvl: sum(1 for f in report["files"].values() if f["status"] == "live" and f["level"] == lvl)
+              for lvl in ("fragile", "caution", "stable")}
+    say(
+        f"pr-archaeologist: {hist['mode']} run, {hist['new_commits']} new commit(s) "
+        f"({meta['commits']} total), {done['blame']['blamed']} file(s) blamed "
+        f"({done['blame']['cached']} cached), {done['docs']['parsed']} doc(s) parsed, "
+        f"{seconds:.1f}s"
+    )
+    if "prs" in done:
+        got = done["prs"]
+        note = f" ({got['skipped']})" if got["skipped"] else ""
+        say(f"  pull requests: {got['fetched']} read, {got['cached']} cached{note}")
+        if got["issues"] or got["issues_cached"]:
+            say(f"  issues they closed: {got['issues']} read, {got['issues_cached']} cached")
+    say(f"  files: {counts['fragile']} fragile, {counts['caution']} caution, {counts['stable']} stable")
+    say("  wrote: " + (", ".join(wrote) if wrote else "nothing (outputs already up to date)"))
+
+
 def cmd_dig(args) -> int:
     repo = repo_root(args.repo)
     say = (lambda _m: None) if args.quiet else (lambda m: print(m, file=sys.stderr))
@@ -107,24 +128,7 @@ def cmd_dig(args) -> int:
     if args.json:
         if _write_if_changed(os.path.join(repo, args.json), json.dumps(report, indent=1, sort_keys=True, ensure_ascii=False) + "\n"):
             wrote.append(args.json)
-
-    hist, meta = done["history"], report["meta"]
-    counts = {lvl: sum(1 for f in report["files"].values() if f["status"] == "live" and f["level"] == lvl)
-              for lvl in ("fragile", "caution", "stable")}
-    say(
-        f"pr-archaeologist: {hist['mode']} run, {hist['new_commits']} new commit(s) "
-        f"({meta['commits']} total), {done['blame']['blamed']} file(s) blamed "
-        f"({done['blame']['cached']} cached), {done['docs']['parsed']} doc(s) parsed, "
-        f"{time.time() - started:.1f}s"
-    )
-    if "prs" in done:
-        got = done["prs"]
-        note = f" ({got['skipped']})" if got["skipped"] else ""
-        say(f"  pull requests: {got['fetched']} read, {got['cached']} cached{note}")
-        if got["issues"] or got["issues_cached"]:
-            say(f"  issues they closed: {got['issues']} read, {got['issues_cached']} cached")
-    say(f"  files: {counts['fragile']} fragile, {counts['caution']} caution, {counts['stable']} stable")
-    say("  wrote: " + (", ".join(wrote) if wrote else "nothing (outputs already up to date)"))
+    _say_summary(say, done, report, wrote, time.time() - started)
     return 0
 
 
