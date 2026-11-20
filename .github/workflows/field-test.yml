@@ -1,0 +1,56 @@
+# Run pr-archaeologist, with pull-request reading, against any public GitHub repository and
+# report what it learned. Started by hand from the Actions tab.
+name: Field test
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Public repository to analyse (owner/name)"
+        required: true
+        default: "pallets/flask"
+      max_prs:
+        description: "Pull requests to read (newest first)"
+        required: true
+        default: "150"
+      explain:
+        description: "A file to explain (optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  field-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - name: Clone the target
+        env:
+          TARGET: ${{ inputs.repo }}
+        run: git clone --quiet "https://github.com/${TARGET}" "$RUNNER_TEMP/target"
+      - name: Dig, reading pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_PRS: ${{ inputs.max_prs }}
+        run: |
+          cd "$RUNNER_TEMP/target"
+          time pr-archaeologist dig --prs --max-prs "$MAX_PRS"
+          time pr-archaeologist dig --prs --max-prs 0
+      - name: Report
+        env:
+          EXPLAIN: ${{ inputs.explain }}
+        run: |
+          python scripts/field_report.py "$RUNNER_TEMP/target" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -n "$EXPLAIN" ]; then (cd "$RUNNER_TEMP/target" && pr-archaeologist explain "$EXPLAIN" --no-color --no-refresh); fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: field-test-output
+          path: |
+            ${{ runner.temp }}/target/CODEBASE_ARCHAEOLOGY.md
+            ${{ runner.temp }}/target/archaeology-graph.html
