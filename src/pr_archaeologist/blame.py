@@ -84,6 +84,19 @@ def head_blobs(repo: str) -> Dict[str, Tuple[str, int]]:
     return blobs
 
 
+def _candidates(blobs: Dict, state: Dict, ignored: Callable[[str], bool], max_files: int) -> List[str]:
+    """Code files worth blaming, within the budget."""
+    candidates = [
+        p for p, (_sha, size) in blobs.items()
+        if symbols_mod.is_code(p) and size <= MAX_BLOB_BYTES and not ignored(p)
+    ]
+    if len(candidates) > max_files:
+        # Budget blame for the files with the most history: that is where the stories are.
+        weight = lambda p: len(state["files"].get(p, {}).get("commits", ()))
+        candidates = sorted(candidates, key=lambda p: (-weight(p), p))[:max_files]
+    return candidates
+
+
 def update(
     repo: str,
     state: Dict,
@@ -94,14 +107,7 @@ def update(
     """Refresh state['blame'] for files whose blob changed. Returns counts for the run log."""
     say = progress or (lambda _msg: None)
     blobs = head_blobs(repo)
-    candidates = [
-        p for p, (_sha, size) in blobs.items()
-        if symbols_mod.is_code(p) and size <= MAX_BLOB_BYTES and not ignored(p)
-    ]
-    if len(candidates) > max_files:
-        # Budget blame for the files with the most history: that is where the stories are.
-        weight = lambda p: len(state["files"].get(p, {}).get("commits", ()))
-        candidates = sorted(candidates, key=lambda p: (-weight(p), p))[:max_files]
+    candidates = _candidates(blobs, state, ignored, max_files)
     wanted = set(candidates)
 
     blame = state["blame"]
