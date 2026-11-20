@@ -130,6 +130,13 @@ class DocsTest(unittest.TestCase):
         self.assertIn("svc/worker.py", doc["paths"])
         self.assertIn("Ordering", doc["consequences"])
 
+    def test_agent_note_sections(self):
+        text = "# Why `svc/a.py` exists\n\nText.\n\n## Invariants\n\n- Never fail open (abc1234).\n- Keys are stable\n  across retries (ADR-2).\n\n## Known traps\n\n- Caching the token broke retries (def5678).\n"
+        doc = docs.parse("docs/archaeology/svc-a.py.md", text)
+        self.assertEqual(doc["invariants"], ["Never fail open (abc1234).", "Keys are stable across retries (ADR-2)."])
+        self.assertEqual(doc["traps"], ["Caching the token broke retries (def5678)."])
+        self.assertIn("svc/a.py", doc["paths"])
+
     def test_plain_doc(self):
         self.assertEqual(docs.parse("README.md", "# Hello\n\nSee `src/app.py`.\n")["kind"], "doc")
 

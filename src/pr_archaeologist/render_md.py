@@ -53,6 +53,8 @@ def _file_section(f: Dict, max_events: int) -> List[str]:
             out.append(f"  - [{doc['label']}: {doc['title']}]({doc['path']}){status}")
             if doc.get("decision"):
                 out.append(f"    - Decision: {doc['decision']}")
+            for rule in doc.get("invariants", []):
+                out.append(f"    - Must hold: {rule}")
     if f["pitfalls"]:
         out.append("- **Past pitfalls (read before editing):**")
         for pit in f["pitfalls"][-max_events:]:

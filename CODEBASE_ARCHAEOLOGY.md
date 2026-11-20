@@ -18,19 +18,6 @@ No file crosses the caution threshold yet.
 
 ## Files with history worth knowing
 
-### `examples/make_demo_repo.py`
-
-- **Risk:** 🟢 **stable** (score 22/100) — 2 warning comments
-- **History:** 1 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
-- **Past pitfalls (read before editing):**
-  - [comment] 2026-11-20 `a5488f7` L77: WARNING: do not retry responses the gateway actually answered (see #19)",
-  - [comment] 2026-11-20 `a5488f7` L116: HACK: the gateway answers 200 with an error body when it rate-limits us")
-
 ### `src/pr_archaeologist/blame.py`
 
 - **Risk:** 🟢 **stable** (score 15/100) — 1 warning comment
@@ -39,20 +26,9 @@ No file crosses the caution threshold yet.
   - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
     - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
 - **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
   - [Doc: How pr-archaeologist works](docs/HOW_IT_WORKS.md)
 - **Past pitfalls (read before editing):**
   - [comment] 2026-11-20 `a5488f7` L21: |//|/\*|\*|--|;|<!--)\s*(.*(?:\b(?:HACK|XXX|FIXME|WARNING|WORKAROUND|IMPORTANT|CAUTION|DANGER)\b|"
-
-### `examples/github-actions/nightly-archaeology.yml`
-
-- **Risk:** 🟢 **stable** (score 11/100)
-- **History:** 2 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
 
 ### `src/pr_archaeologist/classify.py`
 
@@ -62,21 +38,7 @@ No file crosses the caution threshold yet.
   - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
     - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
 - **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
   - [Doc: How pr-archaeologist works](docs/HOW_IT_WORKS.md)
-- **Past pitfalls (read before editing):**
-  - [warning] 2026-11-20 `b7ce2b1` Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution.
-  - [warning] 2026-11-20 `b7ce2b1` Documentation and licence files are not scored; churn alone never reaches caution.
-
-### `src/pr_archaeologist/explain.py`
-
-- **Risk:** 🟢 **stable** (score 11/100)
-- **History:** 2 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
 - **Past pitfalls (read before editing):**
   - [warning] 2026-11-20 `b7ce2b1` Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution.
   - [warning] 2026-11-20 `b7ce2b1` Documentation and licence files are not scored; churn alone never reaches caution.
@@ -89,64 +51,10 @@ No file crosses the caution threshold yet.
   - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
     - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
 - **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
   - [Doc: How pr-archaeologist works](docs/HOW_IT_WORKS.md)
 - **Past pitfalls (read before editing):**
   - [warning] 2026-11-20 `b7ce2b1` Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution.
   - [warning] 2026-11-20 `b7ce2b1` Documentation and licence files are not scored; churn alone never reaches caution.
-
-### `src/pr_archaeologist/render_md.py`
-
-- **Risk:** 🟢 **stable** (score 11/100)
-- **History:** 2 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
-- **Past pitfalls (read before editing):**
-  - [warning] 2026-11-20 `b7ce2b1` Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution.
-  - [warning] 2026-11-20 `b7ce2b1` Documentation and licence files are not scored; churn alone never reaches caution.
-
-### `agent/nightly.sh`
-
-- **Risk:** 🟢 **stable** (score 7/100)
-- **History:** 1 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
-
-### `examples/crontab.example`
-
-- **Risk:** 🟢 **stable** (score 7/100)
-- **History:** 1 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
-
-### `src/pr_archaeologist/cache.py`
-
-- **Risk:** 🟢 **stable** (score 7/100)
-- **History:** 1 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
-
-### `src/pr_archaeologist/cli.py`
-
-- **Risk:** 🟢 **stable** (score 7/100)
-- **History:** 1 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
 
 ### `src/pr_archaeologist/docs.py`
 
@@ -156,7 +64,6 @@ No file crosses the caution threshold yet.
   - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
     - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
 - **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
   - [Doc: How pr-archaeologist works](docs/HOW_IT_WORKS.md)
 
 ### `src/pr_archaeologist/history.py`
@@ -167,18 +74,7 @@ No file crosses the caution threshold yet.
   - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
     - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
 - **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
   - [Doc: How pr-archaeologist works](docs/HOW_IT_WORKS.md)
-
-### `src/pr_archaeologist/render_html.py`
-
-- **Risk:** 🟢 **stable** (score 7/100)
-- **History:** 1 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
 
 ### `src/pr_archaeologist/symbols.py`
 
@@ -188,54 +84,7 @@ No file crosses the caution threshold yet.
   - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
     - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
 - **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
   - [Doc: How pr-archaeologist works](docs/HOW_IT_WORKS.md)
-
-### `docs/HOW_IT_WORKS.md`
-
-- **Risk:** documentation, not scored
-- **History:** 2 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
-- **Past pitfalls (read before editing):**
-  - [warning] 2026-11-20 `b7ce2b1` Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution.
-  - [warning] 2026-11-20 `b7ce2b1` Documentation and licence files are not scored; churn alone never reaches caution.
-
-### `examples/sample-output/explain-payments-retry.txt`
-
-- **Risk:** documentation, not scored
-- **History:** 2 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
-- **Past pitfalls (read before editing):**
-  - [warning] 2026-11-20 `b7ce2b1` Running on TwoMuchLabs/reversibility-classes ranked its README as the most fragile file and labelled 44 of 83 files fragile or caution.
-  - [warning] 2026-11-20 `b7ce2b1` Documentation and licence files are not scored; churn alone never reaches caution.
-
-### `agent/AGENTS-snippet.md`
-
-- **Risk:** documentation, not scored
-- **History:** 1 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
-
-### `agent/nightly-prompt.md`
-
-- **Risk:** documentation, not scored
-- **History:** 1 commits, 2026-11-20 → 2026-11-20, by Claude
-- **Why it exists:**
-  - 2026-11-20 `a5488f7` Initial import of pr-archaeologist — Claude
-    - CLI and nightly workflow that reconstructs the historical "why" behind a codebase from git log, git blame, commit messages and local Markdown/ADR docs.
-- **Decisions and docs:**
-  - [Doc: pr-archaeologist](README.md)
 
 ## Quiet files
 
@@ -246,13 +95,26 @@ No file crosses the caution threshold yet.
 | `.gitignore` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
 | `LICENSE` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
 | `README.md` | 2026-11-20 | 3 | Initial import of pr-archaeologist |
+| `agent/AGENTS-snippet.md` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
+| `agent/nightly-prompt.md` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
+| `agent/nightly.sh` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
+| `docs/HOW_IT_WORKS.md` | 2026-11-20 | 2 | Initial import of pr-archaeologist |
+| `examples/crontab.example` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
+| `examples/github-actions/nightly-archaeology.yml` | 2026-11-20 | 2 | Initial import of pr-archaeologist |
+| `examples/make_demo_repo.py` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
 | `examples/sample-output/dig.log` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
 | `examples/sample-output/explain-deleted-soap_client.txt` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
 | `examples/sample-output/explain-function-charge_with_retry.txt` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
 | `examples/sample-output/explain-payments-ledger.json` | 2026-11-20 | 2 | Initial import of pr-archaeologist |
+| `examples/sample-output/explain-payments-retry.txt` | 2026-11-20 | 2 | Initial import of pr-archaeologist |
 | `pyproject.toml` | 2026-11-20 | 2 | Initial import of pr-archaeologist |
 | `src/pr_archaeologist/__init__.py` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
 | `src/pr_archaeologist/__main__.py` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
+| `src/pr_archaeologist/cache.py` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
+| `src/pr_archaeologist/cli.py` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
+| `src/pr_archaeologist/explain.py` | 2026-11-20 | 2 | Initial import of pr-archaeologist |
 | `src/pr_archaeologist/gitio.py` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
 | `src/pr_archaeologist/graph_template.html` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
+| `src/pr_archaeologist/render_html.py` | 2026-11-20 | 1 | Initial import of pr-archaeologist |
+| `src/pr_archaeologist/render_md.py` | 2026-11-20 | 2 | Initial import of pr-archaeologist |
 | `tests/test_archaeologist.py` | 2026-11-20 | 2 | Initial import of pr-archaeologist |

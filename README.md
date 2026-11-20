@@ -133,11 +133,14 @@ cloud dev container and a no-change rerun under 1 second.
 - **Cron**: [`examples/crontab.example`](examples/crontab.example)
 - **GitHub Actions**: [`examples/github-actions/nightly-archaeology.yml`](examples/github-actions/nightly-archaeology.yml)
   restores the cache, runs `dig`, commits the refreshed files and uploads the graph as an artifact.
+  This repository runs the same workflow on itself: the first run built and committed the index,
+  the second restored the cache, found nothing new and committed nothing.
 - **Agent pass (optional)**: set `ARCHAEOLOGIST_AGENT_CMD` to any agent CLI that takes a prompt as
   its last argument. The script hands it [`agent/nightly-prompt.md`](agent/nightly-prompt.md), which
   asks the agent to write short, commit-cited notes for the most fragile files under
   `docs/archaeology/`. Because those notes name the files they explain, the next `dig` links them
-  into the index and graph with no extra mechanism. The deterministic core never depends on this.
+  into the index and graph, lists their "Invariants" under the file and their "Known traps" among
+  its pitfalls. The deterministic core never depends on this.
 - **Daytime agents**: paste [`agent/AGENTS-snippet.md`](agent/AGENTS-snippet.md) into your
   `AGENTS.md` / `CLAUDE.md` so coding agents run `explain` before editing.
 
@@ -187,7 +190,9 @@ where that project's review and red-team findings actually landed.
 - Only Markdown docs are parsed (not reStructuredText or AsciiDoc).
 - The cache keeps one record per commit, so very large histories produce large caches;
   `--max-commits` bounds the first run.
-- The agent pass has been exercised with a stand-in script, not yet against a live agent CLI.
+- The agent pass is half proven. Notes written to the prompt's format are picked up and shown
+  (tried on Reversibility Classes), but `nightly.sh` has not yet driven a signed-in agent CLI end
+  to end.
 
 ## Development
 

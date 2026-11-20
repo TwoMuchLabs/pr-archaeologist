@@ -30,6 +30,7 @@ ADR_MENTION_RE = re.compile(r"\badr[- _#]?0*(\d{1,5})\b", re.I)
 COUPLING_NOISE = ("changelog", "changes", "history", "news", "release", "authors", "contributors")
 PROSE_EXTENSIONS = {"md", "markdown", "rst", "txt", "adoc", "cff"}
 PROSE_NAMES = ("license", "licence", "notice", "copying", "readme", "codeowners")
+MAX_DOC_LINKS = 8
 FRAGILE, CAUTION = 60, 30
 
 
@@ -123,7 +124,8 @@ def _link_docs(state: Dict, live: Dict[str, Dict]) -> Dict[str, List[str]]:
             hit = resolve(token)
             if hit and hit != path and hit not in found:
                 found.append(hit)
-        links[path] = found
+        # A README that names twenty files is an index, not an explanation of any of them.
+        links[path] = found if (doc["kind"] == "adr" or len(found) <= MAX_DOC_LINKS) else []
     # Commits that cite "ADR-0003" tie that ADR to the files they changed.
     if adr_by_number:
         for commit in state["commits"].values():
@@ -145,6 +147,7 @@ def _doc_ref(path: str, doc: Dict) -> Dict:
         "path": path, "kind": doc["kind"], "label": label, "title": doc["title"],
         "status": doc.get("status"), "date": doc.get("date"), "context": doc.get("context", ""),
         "decision": doc.get("decision", ""), "consequences": doc.get("consequences", ""),
+        "invariants": doc.get("invariants", []), "traps": doc.get("traps", []),
     }
 
 
@@ -283,6 +286,8 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
             "text": f"Changes together with {link['path']} ({link['count']} of {link['of']} commits) — check it when editing this file.",
         })
     for doc in file_docs:
+        for trap in doc.get("traps", []):
+            pitfalls.append({"kind": "note", "date": doc.get("date") or "", "ref": doc["path"], "text": trap})
         if doc["kind"] == "adr" and doc.get("consequences"):
             pitfalls.append({"kind": "decision", "date": doc.get("date") or "", "ref": doc["label"],
                              "text": f"{doc['title']}: {doc['consequences']}"})

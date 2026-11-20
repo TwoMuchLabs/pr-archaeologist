@@ -117,6 +117,8 @@ def render_file(f: Dict, color: bool = False, show_all: bool = False, limit: int
         out.append(f"  {doc['label']}: {doc['title']}{status}  {paint(doc['path'], 'dim')}")
         if doc.get("decision"):
             out += _wrap("Decision: " + doc["decision"], "      ")
+        for rule in doc.get("invariants", []):
+            out += _wrap("Must hold: " + rule, "      ")
     if not f["intent"] and not f["docs"]:
         out.append("  (no history recorded)")
 

@@ -59,7 +59,9 @@
    "date": "2020-02-24",
    "context": "Float arithmetic in the ledger accumulated a 37 EUR mismatch against settlement in January 2020.",
    "decision": "All amounts are stored and computed as integer minor units. Conversion happens once, at the API boundary, in `payments/currency.py`.",
-   "consequences": "Never introduce a float amount into `payments/ledger.py`. Currencies without minor units (JPY) must go through the `MINOR_UNITS` table."
+   "consequences": "Never introduce a float amount into `payments/ledger.py`. Currencies without minor units (JPY) must go through the `MINOR_UNITS` table.",
+   "invariants": [],
+   "traps": []
   }
  ],
  "timeline": [

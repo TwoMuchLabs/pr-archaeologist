@@ -25,8 +25,9 @@ pr-archaeologist dig --repo "$REPO"
 if [ -n "${ARCHAEOLOGIST_AGENT_CMD:-}" ]; then
   # The agent only writes Markdown under docs/archaeology/. Those notes name the files they
   # explain, so the second dig links them into the index and the graph automatically.
-  # shellcheck disable=SC2086
-  $ARCHAEOLOGIST_AGENT_CMD "$(cat "$HERE/nightly-prompt.md")"
+  # The command is evaluated by the shell, so quote arguments inside it as you would on a
+  # command line; the prompt is passed as one final argument.
+  PROMPT="$(cat "$HERE/nightly-prompt.md")" bash -c "$ARCHAEOLOGIST_AGENT_CMD \"\$PROMPT\""
   pr-archaeologist dig --repo "$REPO" --quiet
 fi
 

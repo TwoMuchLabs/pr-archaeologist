@@ -28,7 +28,25 @@ WANTED = {
     "context": ("context", "background", "problem", "motivation", "why"),
     "decision": ("decision", "resolution", "solution", "what we decided"),
     "consequences": ("consequence", "trade-off", "tradeoff", "implication", "risks", "drawback"),
+    # Sections used by the notes the overnight agent writes (agent/nightly-prompt.md).
+    "invariants": ("invariant", "must stay true", "must hold"),
+    "traps": ("known trap", "trap", "pitfall", "gotcha"),
 }
+BULLET_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s+(.*)$")
+
+
+def _bullets(lines: List[str], limit: int = 8) -> List[str]:
+    """Bullet items of a section, with wrapped continuation lines folded back in."""
+    items: List[str] = []
+    for line in lines:
+        m = BULLET_RE.match(line)
+        if m:
+            items.append(m.group(1))
+        elif items:
+            items[-1] += " " + line
+        else:
+            items.append(line)
+    return [_clip(item, 260) for item in items[:limit]]
 
 
 def _clip(text: str, limit: int = 420) -> str:
@@ -117,6 +135,8 @@ def parse(path: str, text: str) -> Dict:
         "context": _clip(" ".join(sections.get("context", []))),
         "decision": _clip(" ".join(sections.get("decision", []))),
         "consequences": _clip(" ".join(sections.get("consequences", []))),
+        "invariants": _bullets(sections.get("invariants", [])),
+        "traps": _bullets(sections.get("traps", [])),
         "paths": sorted(set(PATHISH_RE.findall(text)))[:200],
         "shas": sorted(set(SHA_RE.findall(text)))[:100],
         "prs": sorted({int(n) for n in PR_RE.findall(text)})[:100],
