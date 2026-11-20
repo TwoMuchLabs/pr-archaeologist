@@ -43,38 +43,50 @@ def worth_saying(f: Dict, min_level: str) -> bool:
     return LEVELS[min_level] <= 1 and any(p["kind"] in ("reverted", "decision", "note") for p in notable)
 
 
-def brief(f: Dict) -> str:
-    """A short, plain-text briefing: enough to change what the agent does, no more."""
-    lines: List[str] = []
+def _count(n: int, word: str, plural: str) -> str:
+    return f"{n} {word if n == 1 else plural}" if n else ""
+
+
+def _headline(f: Dict) -> str:
     head = f"History of {f['path']} (from pr-archaeologist): {f['level']}"
     if f.get("rank"):
         head += f", rank {f['rank']} of {f['ranked_of']} in this repository"
-    def count(n: int, word: str, plural: str) -> str:
-        return f"{n} {word if n == 1 else plural}" if n else ""
-
-    counts = [count(f["fixes"], "fix", "fixes"), count(f["security"], "security change", "security changes"),
-              count(f["reverts"], "revert", "reverts")]
+    counts = [_count(f["fixes"], "fix", "fixes"), _count(f["security"], "security change", "security changes"),
+              _count(f["reverts"], "revert", "reverts")]
     counts = [c for c in counts if c]
-    lines.append(head + (" — " + ", ".join(counts) if counts else "") + ".")
+    return head + (" — " + ", ".join(counts) if counts else "") + "."
 
+
+def _doc_lines(f: Dict) -> List[str]:
+    lines: List[str] = []
     for doc in f["docs"][:2]:
         verb = "Governed by" if doc["kind"] == "adr" else "Described in"
         name = f"{doc['label']}: {doc['title']}" if doc["kind"] == "adr" else doc["title"]
         lines.append(f"{verb} {name} ({doc['path']}).")
         for rule in doc.get("invariants", [])[:3]:
             lines.append(f"  Must hold: {rule}")
+    return lines
 
-    # Most useful first: reverted approaches, decisions and notes, then the latest fixes.
+
+def _trouble_lines(f: Dict) -> List[str]:
+    """Up to six pitfalls, in file order. Most useful kept first: reverted approaches,
+    decisions and notes, then the latest fixes."""
     order = {"reverted": 0, "decision": 1, "note": 1, "security": 2, "fix": 2, "issue": 3, "warning": 3, "review": 4, "comment": 4}
     picked = [p for p in f["pitfalls"] if p["kind"] in order]
     picked = sorted(enumerate(picked), key=lambda ip: (order[ip[1]["kind"]], -ip[0]))[:6]
-    if picked:
-        lines.append("Past trouble:")
-        for _i, p in sorted(picked, key=lambda ip: ip[0]):
-            where = " ".join(x for x in (p["date"], p["ref"]) if x)
-            text = re.sub(r"\s+", " ", p["text"])
-            lines.append(f"  - [{p['kind']}] {where}: {text[:260]}")
+    if not picked:
+        return []
+    lines = ["Past trouble:"]
+    for _i, p in sorted(picked, key=lambda ip: ip[0]):
+        where = " ".join(x for x in (p["date"], p["ref"]) if x)
+        text = re.sub(r"\s+", " ", p["text"])
+        lines.append(f"  - [{p['kind']}] {where}: {text[:260]}")
+    return lines
 
+
+def brief(f: Dict) -> str:
+    """A short, plain-text briefing: enough to change what the agent does, no more."""
+    lines = [_headline(f)] + _doc_lines(f) + _trouble_lines(f)
     strong = [c["path"] for c in f["coupled"] if c.get("strong")]
     if strong:
         lines.append("Usually changes together with: " + ", ".join(strong[:3]) + ".")
