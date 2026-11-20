@@ -25,8 +25,7 @@ def _refs(event: Dict) -> str:
     return f" ({', '.join(bits)})" if bits else ""
 
 
-def _file_section(f: Dict, max_events: int) -> List[str]:
-    out = [f"### `{f['path']}`", ""]
+def _risk_line(f: Dict) -> str:
     risk = f"{ICON[f['level']]} **{f['level']}** (score {f['score']}/100)"
     if f.get("prose"):
         risk = "documentation, not scored"
@@ -34,45 +33,67 @@ def _file_section(f: Dict, max_events: int) -> List[str]:
         risk += f", rank {f['rank']} of {f['ranked_of']}"
     if f["reasons"]:
         risk += " — " + ", ".join(f["reasons"])
-    out.append(f"- **Risk:** {risk}")
-    out.append(
-        f"- **History:** {f['commits']} commits, {f['first']} → {f['last']}, by {', '.join(f['authors']) or 'unknown'}"
-        + (f" (+{f['author_count'] - len(f['authors'])} more)" if f["author_count"] > len(f["authors"]) else "")
-    )
+    return f"- **Risk:** {risk}"
+
+
+def _history_line(f: Dict) -> str:
+    more = f" (+{f['author_count'] - len(f['authors'])} more)" if f["author_count"] > len(f["authors"]) else ""
+    return f"- **History:** {f['commits']} commits, {f['first']} → {f['last']}, by {', '.join(f['authors']) or 'unknown'}" + more
+
+
+def _intent_lines(f: Dict) -> List[str]:
+    if not f["intent"]:
+        return []
+    out = ["- **Why it exists:**"]
+    for item in f["intent"]:
+        out.append(f"  - {item['date']} `{item['ref']}` {item['text']} — {item['author']}")
+        out += [f"    - {why}" for why in item["why"]]
+    return out
+
+
+def _doc_lines(f: Dict) -> List[str]:
+    if not f["docs"]:
+        return []
+    out = ["- **Decisions and docs:**"]
+    for doc in f["docs"]:
+        status = f" _{doc['status']}_" if doc.get("status") else ""
+        out.append(f"  - [{doc['label']}: {doc['title']}]({doc['path']}){status}")
+        if doc.get("decision"):
+            out.append(f"    - Decision: {doc['decision']}")
+        out += [f"    - Must hold: {rule}" for rule in doc.get("invariants", [])]
+    return out
+
+
+def _pitfall_lines(f: Dict, max_events: int) -> List[str]:
+    if not f["pitfalls"]:
+        return []
+    out = ["- **Past pitfalls (read before editing):**"]
+    for pit in f["pitfalls"][-max_events:]:
+        where = " ".join(x for x in (pit["date"], f"`{pit['ref']}`" if pit["ref"] else "") if x)
+        out.append(f"  - [{pit['kind']}] {where + ' ' if where else ''}{pit['text']}")
+    return out
+
+
+def _function_lines(f: Dict) -> List[str]:
+    risky_syms = [s for s in f["symbols"] if s["fixes"] and not s["container"]]
+    if not risky_syms:
+        return []
+    out = ["- **Functions with a history:**"]
+    for sym in risky_syms[:12]:
+        fixes = "; ".join(f"{e['date']} `{e['short']}` {e['title']}" for e in sym["fixes"][-3:])
+        out.append(f"  - `{sym['name']}` (L{sym['start']}–{sym['end']}): {fixes}")
+    return out
+
+
+def _file_section(f: Dict, max_events: int) -> List[str]:
+    out = [f"### `{f['path']}`", "", _risk_line(f), _history_line(f)]
     if f["previous"]:
         out.append("- **Previously:** " + ", ".join(f"`{p}`" for p in f["previous"]))
-    if f["intent"]:
-        out.append("- **Why it exists:**")
-        for item in f["intent"]:
-            line = f"  - {item['date']} `{item['ref']}` {item['text']} — {item['author']}"
-            out.append(line)
-            for why in item["why"]:
-                out.append(f"    - {why}")
-    if f["docs"]:
-        out.append("- **Decisions and docs:**")
-        for doc in f["docs"]:
-            status = f" _{doc['status']}_" if doc.get("status") else ""
-            out.append(f"  - [{doc['label']}: {doc['title']}]({doc['path']}){status}")
-            if doc.get("decision"):
-                out.append(f"    - Decision: {doc['decision']}")
-            for rule in doc.get("invariants", []):
-                out.append(f"    - Must hold: {rule}")
-    if f["pitfalls"]:
-        out.append("- **Past pitfalls (read before editing):**")
-        for pit in f["pitfalls"][-max_events:]:
-            where = " ".join(x for x in (pit["date"], f"`{pit['ref']}`" if pit["ref"] else "") if x)
-            out.append(f"  - [{pit['kind']}] {where + ' ' if where else ''}{pit['text']}")
+    out += _intent_lines(f) + _doc_lines(f) + _pitfall_lines(f, max_events)
     if f["coupled"]:
         out.append("- **Usually changes with:** " + ", ".join(
             f"`{c['path']}` ({c['count']}/{c['of']})" for c in f["coupled"]))
-    risky_syms = [s for s in f["symbols"] if s["fixes"] and not s["container"]]
-    if risky_syms:
-        out.append("- **Functions with a history:**")
-        for sym in risky_syms[:12]:
-            fixes = "; ".join(f"{e['date']} `{e['short']}` {e['title']}" for e in sym["fixes"][-3:])
-            out.append(f"  - `{sym['name']}` (L{sym['start']}–{sym['end']}): {fixes}")
-    out.append("")
-    return out
+    return out + _function_lines(f) + [""]
 
 
 def _preamble(meta: Dict) -> List[str]:
