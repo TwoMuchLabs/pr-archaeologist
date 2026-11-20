@@ -13,7 +13,7 @@ import re
 import subprocess
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Dict, Iterator, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
 from . import cache
 from .classify import PR_MERGE_RE, classify
@@ -246,6 +246,106 @@ def _link_merge(repo: str, state: Dict, commit: Dict) -> None:
             rec["pr_title"] = title
 
 
+def _run_mode(repo: str, state: Dict, full: bool, head: str, say: Callable[[str], None]) -> str:
+    """"noop", "incremental" (the cached head is still an ancestor of HEAD) or "full"."""
+    prior = state.get("head")
+    if full or not prior:
+        return "full"
+    if prior == head:
+        return "noop"
+    if not is_ancestor(repo, prior, head):
+        say("cached head is no longer an ancestor of HEAD (history rewritten); rebuilding")
+        return "full"
+    return "incremental"
+
+
+def _log_args(state: Dict, mode: str, max_commits: Optional[int], head: str) -> List[str]:
+    """The `git log` call for this run. A full run first empties the history in `state`."""
+    if mode == "full":
+        keep = {key: state.get(key, {}) for key in ("blame", "docs", "prs", "issues")}
+        state.clear()
+        state.update(cache.empty_state())
+        state.update(keep)  # still valid: keyed by content or by pull-request number
+        rev = head
+    else:
+        rev = f"{state.get('head')}..{head}"
+    args = [
+        "log", "--reverse", "--topo-order", "-M", "--raw", "--numstat", "-z",
+        "--no-abbrev", f"--format={LOG_FORMAT}",
+    ]
+    if mode == "full" and max_commits:
+        args.append(f"--max-count={max_commits}")
+        state["truncated"] = True
+    return args + [rev]
+
+
+def _record(state: Dict, commit: Dict) -> None:
+    """Read the commit's message, then fold it into the commit list and the file histories."""
+    derived = classify(commit["subject"], commit["body"])
+    commit.update(derived)
+    commit["reverted_by"] = None
+    commit["pr_title"] = commit["subject"] if derived["prs"] else None
+    commit["symbols"] = {}
+    if len(commit["body"]) > BODY_LIMIT:
+        commit["body"] = commit["body"][:BODY_LIMIT].rstrip() + "\n[...]"
+    state["commits"][commit["sha"]] = commit
+    apply_commit(state, commit)
+    state["last_commit"] = commit["sha"]
+
+
+def _ingest(repo: str, state: Dict, args: List[str], own_outputs: set, say: Callable[[str], None]) -> Tuple[List[str], List[Dict]]:
+    """Read the log into `state`; returns the new commit ids and the merge commits seen."""
+    new_shas: List[str] = []
+    merges: List[Dict] = []
+    for record in _stream_records(repo, args):
+        commit = parse_record(record)
+        if commit is None:
+            continue
+        if len(commit["parents"]) > 1:
+            state["merges"] = state.get("merges", 0) + 1
+            merges.append(commit)
+            continue
+        if commit["files"] and all(entry[0] in own_outputs for entry in commit["files"]):
+            # The nightly job committing our own output is not history worth analysing, and
+            # counting it would make every run change the index it just committed.
+            continue
+        _record(state, commit)
+        new_shas.append(commit["sha"])
+        if len(new_shas) % 2000 == 0:
+            say(f"  parsed {len(new_shas)} commits")
+    return new_shas, merges
+
+
+def _resolve_reverts(state: Dict, new_shas: List[str]) -> None:
+    """Resolve "This reverts commit <sha>" into edges both ways."""
+    for sha in new_shas:
+        commit = state["commits"][sha]
+        target = commit.get("reverts")
+        if not target:
+            continue
+        full_sha = target if target in state["commits"] else next(
+            (s for s in state["commits"] if s.startswith(target)), None
+        )
+        commit["reverts"] = full_sha
+        if full_sha:
+            state["commits"][full_sha]["reverted_by"] = sha
+
+
+def _attribute_symbols(repo: str, state: Dict, new_shas: List[str]) -> None:
+    """Function-level attribution for the commits that matter most (fixes and friends)."""
+    wanted = [
+        s for s in new_shas
+        if state["commits"][s]["kind"] in SYMBOL_KINDS
+        and 0 < len(state["commits"][s]["files"]) <= SYMBOL_HINT_MAX_FILES
+    ]
+    if not wanted:
+        return
+    attributes = _attributes_file(repo)
+    with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
+        for sha, hints in zip(wanted, pool.map(lambda s: symbols_touched(repo, s, attributes), wanted)):
+            state["commits"][sha]["symbols"] = hints
+
+
 def update(
     repo: str,
     state: Dict,
@@ -263,91 +363,15 @@ def update(
     head = head_sha(repo)
     if head is None:
         raise GitError("repository has no commits yet")
-
-    mode = "incremental"
-    prior = state.get("head")
-    if full or not prior:
-        mode = "full"
-    elif prior == head:
+    mode = _run_mode(repo, state, full, head, say)
+    if mode == "noop":
         return {"mode": "noop", "new_commits": 0, "head": head}
-    elif not is_ancestor(repo, prior, head):
-        mode = "full"
-        say("cached head is no longer an ancestor of HEAD (history rewritten); rebuilding")
 
-    if mode == "full":
-        keep = {key: state.get(key, {}) for key in ("blame", "docs", "prs", "issues")}
-        state.clear()
-        state.update(cache.empty_state())
-        state.update(keep)  # still valid: keyed by content or by pull-request number
-        rev = head
-    else:
-        rev = f"{prior}..{head}"
-
-    args = [
-        "log", "--reverse", "--topo-order", "-M", "--raw", "--numstat", "-z",
-        "--no-abbrev", f"--format={LOG_FORMAT}",
-    ]
-    if mode == "full" and max_commits:
-        args.append(f"--max-count={max_commits}")
-        state["truncated"] = True
-    args.append(rev)
-
-    own_outputs = set(generated or [])
-    new_shas: List[str] = []
-    merges: List[Dict] = []
-    for record in _stream_records(repo, args):
-        commit = parse_record(record)
-        if commit is None:
-            continue
-        if len(commit["parents"]) > 1:
-            state["merges"] = state.get("merges", 0) + 1
-            merges.append(commit)
-            continue
-        if commit["files"] and all(entry[0] in own_outputs for entry in commit["files"]):
-            # The nightly job committing our own output is not history worth analysing, and
-            # counting it would make every run change the index it just committed.
-            continue
-        derived = classify(commit["subject"], commit["body"])
-        commit.update(derived)
-        commit["reverted_by"] = None
-        commit["pr_title"] = commit["subject"] if derived["prs"] else None
-        commit["symbols"] = {}
-        if len(commit["body"]) > BODY_LIMIT:
-            commit["body"] = commit["body"][:BODY_LIMIT].rstrip() + "\n[...]"
-        state["commits"][commit["sha"]] = commit
-        apply_commit(state, commit)
-        new_shas.append(commit["sha"])
-        state["last_commit"] = commit["sha"]
-        if len(new_shas) % 2000 == 0:
-            say(f"  parsed {len(new_shas)} commits")
-
-    # Resolve "This reverts commit <sha>" into edges both ways.
-    for sha in new_shas:
-        commit = state["commits"][sha]
-        target = commit.get("reverts")
-        if not target:
-            continue
-        full_sha = target if target in state["commits"] else next(
-            (s for s in state["commits"] if s.startswith(target)), None
-        )
-        commit["reverts"] = full_sha
-        if full_sha:
-            state["commits"][full_sha]["reverted_by"] = sha
-
+    args = _log_args(state, mode, max_commits, head)
+    new_shas, merges = _ingest(repo, state, args, set(generated or []), say)
+    _resolve_reverts(state, new_shas)
     for merge in merges:
         _link_merge(repo, state, merge)
-
-    # Function-level attribution for the commits that matter most (fixes and friends).
-    wanted = [
-        s for s in new_shas
-        if state["commits"][s]["kind"] in SYMBOL_KINDS
-        and 0 < len(state["commits"][s]["files"]) <= SYMBOL_HINT_MAX_FILES
-    ]
-    if wanted:
-        attributes = _attributes_file(repo)
-        with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
-            for sha, hints in zip(wanted, pool.map(lambda s: symbols_touched(repo, s, attributes), wanted)):
-                state["commits"][sha]["symbols"] = hints
-
+    _attribute_symbols(repo, state, new_shas)
     state["head"] = head
     return {"mode": mode, "new_commits": len(new_shas), "head": head}
