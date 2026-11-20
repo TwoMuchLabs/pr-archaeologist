@@ -82,18 +82,21 @@ def _advice(f: Dict) -> List[str]:
     return tips
 
 
-def render_file(f: Dict, color: bool = False, show_all: bool = False, limit: int = 12) -> str:
-    paint = Painter(color)
-    out: List[str] = []
-    out.append(paint(f["path"], "bold") + (paint("  (deleted)", "dim") if f["status"] == "deleted" else ""))
+def _counted(n: int, word: str, plural: str = "s") -> str:
+    return f"{n} {word}{plural if n != 1 else ''}"
+
+
+def _header(f: Dict, paint: Painter) -> List[str]:
+    """Path, level badge and counts; then former names and how a deleted file went."""
+    out = [paint(f["path"], "bold") + (paint("  (deleted)", "dim") if f["status"] == "deleted" else "")]
     stats = [f"{f['commits']} commits"]
     if f["fixes"]:
-        stats.append(f"{f['fixes']} fix{'es' if f['fixes'] != 1 else ''}")
+        stats.append(_counted(f["fixes"], "fix", "es"))
     if f["security"]:
-        stats.append(f"{f['security']} security change{'s' if f['security'] != 1 else ''}")
+        stats.append(_counted(f["security"], "security change"))
     if f["reverts"]:
-        stats.append(f"{f['reverts']} revert{'s' if f['reverts'] != 1 else ''}")
-    stats.append(f"{f['author_count']} author{'s' if f['author_count'] != 1 else ''}")
+        stats.append(_counted(f["reverts"], "revert"))
+    stats.append(_counted(f["author_count"], "author"))
     stats.append(f"{f['first']} → {f['last']}")
     badge = paint(f"{f['level'].upper()} {f['score']}/100", LEVEL_COLOR[f["level"]], "bold")
     if f.get("prose"):
@@ -108,8 +111,11 @@ def render_file(f: Dict, color: bool = False, show_all: bool = False, limit: int
         out.append(f"Removed {gone['date']} {gone['short']}: {gone['title']}")
         for why in ([gone["lead"]] if gone.get("lead") else gone["why"][:1]):
             out += _wrap(why, "    ")
+    return out
 
-    out += ["", paint("WHY IT EXISTS", "cyan", "bold")]
+
+def _why_section(f: Dict, paint: Painter) -> List[str]:
+    out = ["", paint("WHY IT EXISTS", "cyan", "bold")]
     for item in f["intent"]:
         out.append(f"  {item['date']} {paint(item['ref'], 'dim')}  {item['text']} — {item['author']}")
         for why in item["why"]:
@@ -123,7 +129,26 @@ def render_file(f: Dict, color: bool = False, show_all: bool = False, limit: int
             out += _wrap("Must hold: " + rule, "      ")
     if not f["intent"] and not f["docs"]:
         out.append("  (no history recorded)")
+    return out
 
+
+def _timeline_row(e: Dict, paint: Painter) -> str:
+    mark = "◆" if e["note"] == "born" else MARK.get(e["kind"], "·")
+    label = e["kind"]
+    extra = paint("  [later reverted]", "red") if e["reverted_by"] else ""
+    if e["note"] == "born":
+        label = "born"
+    elif e["note"] == "deleted":
+        label = "deleted"
+    elif e["note"]:
+        label = "renamed"
+        extra = paint(f"  [{e['note']}]", "dim") + extra
+    refs = "".join(f" #{n}" for n in e["prs"])
+    tone = ("red",) if e["kind"] in ("fix", "security", "revert") else ()
+    return f"  {e['date']} {paint(mark, *tone)} {paint(e['short'], 'dim')} {label:<8} {e['title']}{refs}{extra}"
+
+
+def _timeline_section(f: Dict, paint: Painter, show_all: bool, limit: int) -> List[str]:
     events = f["timeline"]
     landmark = [
         e for i, e in enumerate(events)
@@ -135,53 +160,62 @@ def render_file(f: Dict, color: bool = False, show_all: bool = False, limit: int
     skipped = len(landmark) - len(shown)
     title = "TIMELINE"
     if hidden or skipped:
-        title += f"  ({hidden + skipped} routine or older change{'s' if hidden + skipped != 1 else ''} hidden, --all to show)"
-    out += ["", paint(title, "cyan", "bold")]
-    for e in shown:
-        mark = "◆" if e["note"] == "born" else MARK.get(e["kind"], "·")
-        label = e["kind"]
-        extra = paint("  [later reverted]", "red") if e["reverted_by"] else ""
-        if e["note"] == "born":
-            label = "born"
-        elif e["note"] == "deleted":
-            label = "deleted"
-        elif e["note"]:
-            label = "renamed"
-            extra = paint(f"  [{e['note']}]", "dim") + extra
-        refs = "".join(f" #{n}" for n in e["prs"])
-        tone = ("red",) if e["kind"] in ("fix", "security", "revert") else ()
-        out.append(f"  {e['date']} {paint(mark, *tone)} {paint(e['short'], 'dim')} {label:<8} {e['title']}{refs}{extra}")
+        title += f"  ({_counted(hidden + skipped, 'routine or older change')} hidden, --all to show)"
+    return ["", paint(title, "cyan", "bold")] + [_timeline_row(e, paint) for e in shown]
 
-    if f["pitfalls"]:
-        out += ["", paint("PAST PITFALLS", "cyan", "bold")]
-        pits = f["pitfalls"] if show_all else f["pitfalls"][-8:]
-        if len(pits) < len(f["pitfalls"]):
-            out.append(paint(f"  ({len(f['pitfalls']) - len(pits)} older hidden, --all to show)", "dim"))
-        for p in pits:
-            head = f"  {paint('!', 'red', 'bold')} [{p['kind']}] " + " ".join(x for x in (p["date"], p["ref"]) if x)
-            out.append(head)
-            out += _wrap(p["text"], "      ")
 
-    if f["coupled"]:
-        out += ["", paint("USUALLY CHANGES WITH", "cyan", "bold")]
-        for c in f["coupled"]:
-            out.append(f"  {c['path']}  ({c['count']} of {c['of']} commits)")
+def _pitfall_section(f: Dict, paint: Painter, show_all: bool) -> List[str]:
+    if not f["pitfalls"]:
+        return []
+    out = ["", paint("PAST PITFALLS", "cyan", "bold")]
+    pits = f["pitfalls"] if show_all else f["pitfalls"][-8:]
+    if len(pits) < len(f["pitfalls"]):
+        out.append(paint(f"  ({len(f['pitfalls']) - len(pits)} older hidden, --all to show)", "dim"))
+    for p in pits:
+        head = f"  {paint('!', 'red', 'bold')} [{p['kind']}] " + " ".join(x for x in (p["date"], p["ref"]) if x)
+        out.append(head)
+        out += _wrap(p["text"], "      ")
+    return out
 
+
+def _coupled_section(f: Dict, paint: Painter) -> List[str]:
+    if not f["coupled"]:
+        return []
+    rows = [f"  {c['path']}  ({c['count']} of {c['of']} commits)" for c in f["coupled"]]
+    return ["", paint("USUALLY CHANGES WITH", "cyan", "bold")] + rows
+
+
+def _functions_section(f: Dict, paint: Painter, show_all: bool) -> List[str]:
     risky = [s for s in f["symbols"] if s["fixes"] and not s["container"]]
-    if risky:
-        out += ["", paint("FUNCTIONS WITH A HISTORY", "cyan", "bold")]
-        for s in risky[: (None if show_all else 8)]:
-            out.append(f"  {paint(s['name'], 'bold')}  L{s['start']}–{s['end']}  ·  {len(s['fixes'])} risky change{'s' if len(s['fixes']) != 1 else ''}")
-            for e in s["fixes"][-3:]:
-                out.append(f"      {e['date']} {paint(e['short'], 'dim')} {e['title']}")
+    if not risky:
+        return []
+    out = ["", paint("FUNCTIONS WITH A HISTORY", "cyan", "bold")]
+    for s in risky[: (None if show_all else 8)]:
+        out.append(f"  {paint(s['name'], 'bold')}  L{s['start']}–{s['end']}  ·  {_counted(len(s['fixes']), 'risky change')}")
+        for e in s["fixes"][-3:]:
+            out.append(f"      {e['date']} {paint(e['short'], 'dim')} {e['title']}")
+    return out
 
+
+def _advice_section(f: Dict, paint: Painter) -> List[str]:
     tips = _advice(f)
-    if tips and f["status"] == "live":
-        out += ["", paint("BEFORE YOU EDIT", "cyan", "bold")]
-        for tip in tips:
-            lines = _wrap(tip, "    ")
-            lines[0] = "  -" + lines[0][3:]
-            out += lines
+    if not tips or f["status"] != "live":
+        return []
+    out = ["", paint("BEFORE YOU EDIT", "cyan", "bold")]
+    for tip in tips:
+        lines = _wrap(tip, "    ")
+        lines[0] = "  -" + lines[0][3:]
+        out += lines
+    return out
+
+
+def render_file(f: Dict, color: bool = False, show_all: bool = False, limit: int = 12) -> str:
+    paint = Painter(color)
+    out = (
+        _header(f, paint) + _why_section(f, paint) + _timeline_section(f, paint, show_all, limit)
+        + _pitfall_section(f, paint, show_all) + _coupled_section(f, paint)
+        + _functions_section(f, paint, show_all) + _advice_section(f, paint)
+    )
     return "\n".join(out) + "\n"
 
 
