@@ -162,6 +162,12 @@ class PullRequestTest(unittest.TestCase):
         comments = [
             {"user": {"login": "tomas", "type": "User"}, "body": "Looks good.\n\nNever retry a declined card, the gateway already answered."},
             {"user": {"login": "dependabot[bot]", "type": "Bot"}, "body": "You must rebase because of conflicts."},
+            # Conversation seen on a real project's review threads: none of it is about the code's hazards.
+            {"user": {"login": "lena", "type": "User"}, "body": "Why not keep it as it is and just edit the error message?"},
+            {"user": {"login": "lena", "type": "User"}, "body": "@tomas because that's not accurate, as described in the issue."},
+            {"user": {"login": "lena", "type": "User"}, "body": "I don't think we need to reference this change here, it never mattered."},
+            {"user": {"login": "lena", "type": "User"}, "body": "For the future, you do not need to open an issue for this kind of trivial thing."},
+            {"user": {"login": "lena", "type": "User"}, "body": "> Never retry a declined card, the gateway already answered."},
         ]
         got = prs.summarise({"number": 1, "title": "t", "body": "", "user": {"login": "maya"}}, comments)
         self.assertEqual([(d["author"], d["text"]) for d in got["discussion"]],
@@ -206,6 +212,26 @@ class PullRequestTest(unittest.TestCase):
             self.assertEqual(sorted(k for k, _ in texts), ["fix", "review", "warning"])
             self.assertTrue(texts[("review", "PR #2")].startswith("tomas: "))
             self.assertEqual((f["rank"], f["ranked_of"]), (1, 1))
+
+    def test_a_sweeping_commits_warning_is_not_repeated_on_every_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "r")
+            os.makedirs(repo)
+            git(repo, "init", "-q", "-b", "main")
+            for i in range(9):
+                write(repo, f"mod{i}.py", "x = 0\n")
+            write(repo, "context.py", "a = 0\n")
+            commit(repo, "Initial import")
+            for i in range(9):
+                write(repo, f"mod{i}.py", "x = 1\n")
+            write(repo, "context.py", "".join(f"line{i} = {i}\n" for i in range(40)))
+            commit(repo, "Rework contexts\n\nNever mutate the stack in place.\n\nKeep mod3 imports lazy, always.", date="2021-02-01T00:00:00+00:00")
+            self.assertEqual(run_cli("dig", "--repo", repo)[0], 0)
+            files = model.build(cache.load(repo), "r", "2021-02-01")["files"]
+            warnings = lambda p: [x["text"] for x in files[p]["pitfalls"] if x["kind"] == "warning"]
+            self.assertEqual(len(warnings("context.py")), 2)          # it carries most of the change
+            self.assertEqual(warnings("mod1.py"), [])                  # brushed by a ten-file commit
+            self.assertEqual(warnings("mod3.py"), ["Keep mod3 imports lazy, always."])  # named in the warning
 
 
 class EndToEndTest(unittest.TestCase):

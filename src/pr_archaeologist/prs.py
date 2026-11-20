@@ -32,7 +32,24 @@ BOT_RE = re.compile(r"(\[bot\]$|^dependabot|^renovate|^github-actions|^codecov|-
 PROCESS_RE = re.compile(
     r"\b(sign(ed)?[- ]off|signoff|dco|rebas(e|ed|ing)|merge conflicts?|squash\w*|lgtm|nit\b|"
     r"this (pr|pull request)|(ci|check|build|pipeline) (is|was|will|should|fails?|failed|passes|passed)|"
-    r"approv(e|ed|al)|force[- ]push\w*)",
+    r"approv(e|ed|al)|force[- ]push\w*|open(ed|ing)? an? (issue|pr|pull request)|merged (in)?to|"
+    r"access token|changelog|release notes|documentation update|reference this change|"
+    r"wrong branch|target(s|ed|ing)? (main|master|the))",
+    re.I,
+)
+# Review threads are conversation. Only keep a remark that states a hazard or a rule about
+# the code; questions, replies, quotes and first-person hedging are dropped.
+REMARK_SIGNAL_RE = re.compile(
+    r"\b(never|always|must(?![-\w])|otherwise|will (break|fail|crash|leak)|breaks?|broke|race|unsafe|"
+    r"thread[- ]?safe\w*|deadlock|regression|backwards?[- ]?(in)?compat\w*|deprecat\w*|"
+    r"security|vulnerab\w+|edge case|careful|subtle|side effect|data loss|corrupt\w*|invariant)\b",
+    re.I,
+)
+REMARK_CHATTER_RE = re.compile(
+    r"^\s*(>|@\w)|\?\s*$|"
+    r"\b(i (don't|do not|didn't|would|wouldn't|will|won't|can|can't|could|think|guess|believe|agree|want|"
+    r"wonder|suppose|feel|prefer|am|was|have|had)|i'm|i've|i'll|i'd|imo|imho|thanks|thank you|"
+    r"you (do not|don't) need|let me know|for the future|sorry|please)\b",
     re.I,
 )
 MAX_DISCUSSION = 4
@@ -110,9 +127,9 @@ def summarise(pr: Dict, comments: List[Dict]) -> Dict:
         if not who or kind == "Bot" or BOT_RE.search(who):
             continue
         for sent in _sentences(clean_body(item.get("body") or "")):
-            if PROCESS_RE.search(sent):
+            if PROCESS_RE.search(sent) or REMARK_CHATTER_RE.search(sent) or len(sent) < 40:
                 continue
-            if (WARN_RE.search(sent) or WHY_RE.search(sent)) and len(discussion) < MAX_DISCUSSION:
+            if REMARK_SIGNAL_RE.search(sent) and len(discussion) < MAX_DISCUSSION:
                 discussion.append({"author": who, "text": sent, "own": who == author})
     return {
         "number": pr.get("number"),

@@ -212,6 +212,11 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
         # was barely touched in a commit that mostly changed other files (a version bump
         # riding along with a real fix).
         changed = sum(event["delta"])
+        # Does a remark in this commit's message (or its pull request) belong to this file?
+        # Yes for a small commit, or when this file carries a real share of the change; a
+        # sweeping commit's warnings are not repeated on every file it brushed.
+        total = sum(e[1] + e[2] for e in commit["files"]) or 1
+        event["local"] = len(commit["files"]) <= 6 or changed / total >= 0.25
         event["incidental"] = bool(
             commit["kind"] in RISKY_KINDS
             and (idx == 0 or (len(commit["files"]) > 3 and changed <= 2))
@@ -303,13 +308,19 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
                 "kind": event["kind"], "date": event["date"], "ref": event["short"],
                 "text": event["title"] + (f" — {why}" if why else ""),
             })
+        stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+
+        def belongs(text: str) -> bool:
+            return event["local"] or (len(stem) >= 4 and stem in text.lower())
+
         for warning in event["warn"]:
-            pitfalls.append({"kind": "warning", "date": event["date"], "ref": event["short"], "text": warning})
+            if belongs(warning):
+                pitfalls.append({"kind": "warning", "date": event["date"], "ref": event["short"], "text": warning})
         risky = event["kind"] in RISKY_KINDS or bool(event["reverted_by"])
         for note in event["pr_notes"]:
             # A pull request's warnings always matter; its reasons and review remarks only
             # for the changes that fixed or undid something.
-            if (note["pr"], note["text"]) in said:
+            if (note["pr"], note["text"]) in said or not belongs(note["text"]):
                 continue
             if note["kind"] == "warn" or (risky and note["kind"] in ("review", "why")):
                 said.add((note["pr"], note["text"]))
