@@ -49,9 +49,12 @@ REMARK_CHATTER_RE = re.compile(
     r"^\s*(>|@\w)|\?\s*$|"
     r"\b(i (don't|do not|didn't|would|wouldn't|will|won't|can|can't|could|think|guess|believe|agree|want|"
     r"wonder|suppose|feel|prefer|am|was|have|had)|i'm|i've|i'll|i'd|imo|imho|thanks|thank you|"
-    r"you (do not|don't) need|let me know|for the future|sorry|please)\b",
+    r"you (do not|don't) need|you (should|could|can|might|may)|let me know|for (the )?future|sorry|please|"
+    r"commit message|just for|also,? remove|nothing appears)\b",
     re.I,
 )
+# In a pull-request description, the author thinking aloud rather than describing the change.
+BODY_CHATTER_RE = re.compile(r"\b(let me know|unsure|not sure|i don't plan|i do not plan|feedback welcome|wip\b|todo\b)", re.I)
 MAX_DISCUSSION = 4
 
 FetchJson = Callable[[str], object]
@@ -106,7 +109,10 @@ def clean_body(text: str) -> str:
 
 def _pick(body: str) -> Tuple[List[str], List[str], Optional[str]]:
     why, warn = [], []
-    sentences = [s for s in _sentences(clean_body(body)) if not PROCESS_RE.search(s)]
+    sentences = [
+        s for s in _sentences(clean_body(body))
+        if not PROCESS_RE.search(s) and not BODY_CHATTER_RE.search(s)
+    ]
     for sent in sentences:
         if WARN_RE.search(sent) and len(warn) < 2:
             warn.append(sent)

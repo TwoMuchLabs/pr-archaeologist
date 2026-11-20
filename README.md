@@ -126,8 +126,20 @@ warnings, and remarks from human reviewers that explain or warn. Template scaffo
 - If GitHub cannot be reached, the run carries on without them.
 - `explain` never touches the network; it shows what `dig` has cached.
 
-Tried on Reversibility Classes (8 pull requests, about 7 seconds). That repository has no human
-review comments, so the review-remark path is covered by unit tests only.
+Tried on Reversibility Classes (8 pull requests, about 7 seconds) and, through the field-test
+workflow below, on Flask: 300 pull requests read in about four minutes, 45 with a stated reason,
+26 with a warning. Reviewer remarks are deliberately rare. A first pass kept 30 remarks from 150
+pull requests and most were conversation ("Why not keep it as it is?"); the rule is now that a
+remark must state a hazard or a rule about the code, which kept 12 from 300. By our reading about
+half of those are useful, so treat reviewer remarks as leads, not facts.
+
+A warning from a commit or its pull request is attached to a file only when the commit is small,
+the file carries a quarter or more of the change, or the warning names the file. Otherwise one
+sweeping pull request would repeat its warnings on every file it touched.
+
+To try it on any public repository without installing anything, run the **Field test** workflow
+from this repository's Actions tab ([`field-test.yml`](.github/workflows/field-test.yml)): give it
+`owner/name` and it prints what the pull requests added and uploads the index and graph.
 
 ## Incremental caching
 
@@ -218,7 +230,7 @@ where that project's review and red-team findings actually landed.
 - Symbol extraction uses Python's `ast` for Python and regex plus brace matching for other
   languages. It is approximate outside Python.
 - Pull requests are read only from github.com, and only those a commit message names. Issues are
-  not read.
+  not read. Reading takes about a second per pull request.
 - Quoted commit and pull-request text is untrusted. The index tells agents to treat it as record,
   not instruction, and the graph escapes it, but a reader should keep that in mind.
 - Only Markdown docs are parsed (not reStructuredText or AsciiDoc).

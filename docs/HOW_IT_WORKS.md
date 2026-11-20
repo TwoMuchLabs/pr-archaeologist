@@ -72,14 +72,19 @@ the ADR number.
 `dig --prs` collects the pull-request numbers found in step 1 and reads each one from the GitHub
 REST API with the standard library: the pull request, then its issue comments, review comments
 and reviews when it has any. The body is stripped of HTML comments, checklists, tables, images and
-code blocks, then split into sentences the same way commit bodies are. Kept: up to three reasons,
-two warnings, and four reviewer remarks that explain or warn. Dropped: bots, and anything about
-the pull request's own paperwork. A number that turns out to be an issue is remembered as missing
+code blocks, then split into sentences the same way commit bodies are. Kept: up to three reasons
+and two warnings from the description, and up to four reviewer remarks. A reviewer remark is kept
+only if it states a hazard or a rule about the code ("never", "otherwise", "race", "deprecate",
+"backwards compatible", "breaks"); questions, replies, quotes and first-person hedging are
+conversation and are dropped. Also dropped: bots, and anything about the pull request's own
+paperwork. A number that turns out to be an issue is remembered as missing
 so it is not asked for again. Results live in the cache under `prs`, keyed by number, and survive
 a history rebuild.
 
-In the model, a pull request's warnings attach to every file its commits changed; its reasons and
-review remarks attach only where the commit fixed or undid something. Each is shown once per file.
+In the model, a pull request's reasons and review remarks attach only where the commit fixed or
+undid something, and each is shown once per file. A warning, whether from a commit message or its
+pull request, attaches to a file only when the commit touched six files or fewer, the file carries
+a quarter or more of the changed lines, or the warning names the file.
 
 ## 5. The model (`model.py`)
 

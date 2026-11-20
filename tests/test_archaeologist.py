@@ -168,6 +168,7 @@ class PullRequestTest(unittest.TestCase):
             {"user": {"login": "lena", "type": "User"}, "body": "I don't think we need to reference this change here, it never mattered."},
             {"user": {"login": "lena", "type": "User"}, "body": "For the future, you do not need to open an issue for this kind of trivial thing."},
             {"user": {"login": "lena", "type": "User"}, "body": "> Never retry a declined card, the gateway already answered."},
+            {"user": {"login": "lena", "type": "User"}, "body": "Just for future contributions: You should always create a branch for your changes."},
         ]
         got = prs.summarise({"number": 1, "title": "t", "body": "", "user": {"login": "maya"}}, comments)
         self.assertEqual([(d["author"], d["text"]) for d in got["discussion"]],
