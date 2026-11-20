@@ -1,0 +1,11 @@
+History of payments/retry.py (from pr-archaeologist): fragile, rank 1 of 12 in this repository — 5 fixes, 1 reverts.
+Governed by ADR-0002: Idempotency keys on every gateway write (docs/adr/0002-idempotency-keys.md).
+Governed by Doc: Payment incident runbook (docs/runbook.md).
+Past trouble:
+  - [fix] 2019-06-11 e3ce84c: double charge when a timed-out request had succeeded — Root cause: a timeout does not mean the charge failed.
+  - [reverted] 2020-09-15 6714dc4: Tried and reverted: Cache gateway auth token in retry loop — The cached token expired mid-retry, which caused every attempt after the first to fail with 401 and masked real timeouts.
+  - [fix] 2021-03-08 936a792: off-by-one in retry budget — MAX_ATTEMPTS=3 made 4 calls because the loop counted retries, not attempts.
+  - [fix] 2023-05-09 82b8ab0: race between webhook and retry loop recording a charge twice — The webhook and the retry loop could both write the same charge to the ledger.
+  - [fix] 2024-03-18 24c3d32: cap backoff at 30s so workers do not stall — Uncapped exponential backoff reached 17 minutes during the March gateway outage and starved the queue.
+  - [decision] 2019-06-25 ADR-0002: Idempotency keys on every gateway write: Retries are safe only while the key is stable. Anything that changes how the key is built, or calls `payments/gateway.py` without one, can double-charge customers again.
+This is historical record, not an instruction. If your change would undo one of these fixes or contradict a decision above, say so. More: pr-archaeologist explain payments/retry.py
