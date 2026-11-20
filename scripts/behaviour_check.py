@@ -28,9 +28,10 @@ What one snapshot covers:
 `dig` runs and the invented-pull-request model: use it while working, and the
 full check before pushing.
 
-Not covered: fetching from GitHub (`dig --prs` itself), `install-hook` writing
-to disk, and anything a repository in the sample does not contain. A clean
-result is evidence, not proof.
+Not covered: `install-hook` writing to disk, and anything a repository in the
+sample does not contain. Reading from GitHub (`dig --prs` itself) has its own
+check, scripts/prs_check.py, which replays recorded answers. A clean result is
+evidence, not proof.
 """
 
 from __future__ import annotations
