@@ -14,7 +14,7 @@ import sys
 import time
 from typing import Dict, List, Optional
 
-from . import __version__, blame, cache, docs, explain as explain_mod, history, model, prs, render_html, render_md
+from . import __version__, blame, cache, docs, explain as explain_mod, history, hook as hook_mod, model, prs, render_html, render_md
 from .gitio import GitError, git, head_sha, repo_root
 
 DEFAULT_INDEX = "CODEBASE_ARCHAEOLOGY.md"
@@ -174,6 +174,60 @@ def cmd_explain(args) -> int:
     return 0
 
 
+def cmd_hook(args) -> int:
+    """Never fails and never blocks: any problem means "say nothing"."""
+    try:
+        event: Dict = {}
+        if args.plain:
+            target, cwd, session = args.plain, os.getcwd(), ""
+        else:
+            raw = sys.stdin.read()
+            event = json.loads(raw) if raw.strip() else {}
+            target = hook_mod.path_from_event(event) or ""
+            cwd = event.get("cwd") or os.getcwd()
+            session = str(event.get("session_id") or "")
+        if not target:
+            return 0
+        start = os.path.dirname(target) if os.path.isabs(target) else cwd
+        while start and not os.path.isdir(start):
+            start = os.path.dirname(start)
+        repo = repo_root(start or cwd)
+        state = cache.load(repo)
+        if not state.get("head"):
+            return 0  # no cache yet: building one here could stall the edit
+        if state["head"] != head_sha(repo):
+            refresh(repo, state, args, lambda _m: None)  # offline, incremental
+            cache.save(repo, state)
+        kind, found = explain_mod.resolve(_report(repo, state), target, repo, cwd)
+        if kind != "file" or not hook_mod.worth_saying(found, args.min_level):
+            return 0
+        if not args.plain and hook_mod.already_briefed(repo, session, found["path"]):
+            return 0
+        text = hook_mod.brief(found)
+        print(text if args.plain else hook_mod.claude_code_output(text))
+    except Exception:  # noqa: BLE001 - a history tool must not be the reason an edit fails
+        return 0
+    return 0
+
+
+def cmd_install_hook(args) -> int:
+    repo = repo_root(args.repo)
+    if args.print_only:
+        command = hook_mod.COMMAND if args.min_level == "caution" else f"{hook_mod.COMMAND} --min-level {args.min_level}"
+        print(json.dumps({"hooks": {"PreToolUse": [{"matcher": hook_mod.MATCHER, "hooks": [
+            {"type": "command", "command": command, "timeout": 10}]}]}}, indent=2))
+        return 0
+    try:
+        done = hook_mod.install(repo, args.min_level)
+    except (OSError, ValueError) as exc:
+        print(f"pr-archaeologist: could not update settings: {exc}", file=sys.stderr)
+        return 2
+    print(("Added the pre-edit hook to " if done["changed"] else "The pre-edit hook is already in ") + done["path"])
+    if not cache.load(repo).get("head"):
+        print("Run `pr-archaeologist dig` once: the hook stays silent until there is a cache.")
+    return 0
+
+
 def cmd_status(args) -> int:
     repo = repo_root(args.repo)
     state = cache.load(repo)
@@ -230,6 +284,19 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--no-refresh", action="store_true", help="answer from the cache even if it is behind HEAD")
     exp.add_argument("--no-color", action="store_true", help="plain text output")
     exp.set_defaults(func=cmd_explain)
+
+    hook = sub.add_parser("hook", help="pre-edit hook: brief a coding agent on the file it is about to edit")
+    hook.add_argument("--plain", metavar="PATH", default=None,
+                      help="print the brief for PATH as plain text instead of reading a Claude Code event on stdin")
+    hook.add_argument("--min-level", choices=["any", "caution", "fragile"], default="caution",
+                      help="speak up for files at or above this level (default: caution)")
+    hook.set_defaults(func=cmd_hook)
+
+    inst = sub.add_parser("install-hook", help="add the pre-edit hook to this repo's .claude/settings.json")
+    inst.add_argument("--repo", default=".")
+    inst.add_argument("--min-level", choices=["any", "caution", "fragile"], default="caution")
+    inst.add_argument("--print", dest="print_only", action="store_true", help="print the settings instead of writing them")
+    inst.set_defaults(func=cmd_install_hook)
 
     status = sub.add_parser("status", help="show what the cache covers")
     status.add_argument("--repo", default=".")

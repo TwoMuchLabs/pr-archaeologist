@@ -353,6 +353,56 @@ class EndToEndTest(unittest.TestCase):
         code, out, _ = run_cli("explain", "payments", "--repo", self.repo)
         self.assertIn("payments/gateway.py", out)
 
+    def run_hook(self, event, *extra):
+        out, err = io.StringIO(), io.StringIO()
+        stdin = sys.stdin
+        sys.stdin = io.StringIO(event if isinstance(event, str) else json.dumps(event))
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = cli.main(["hook", *extra])
+        finally:
+            sys.stdin = stdin
+        return code, out.getvalue()
+
+    def test_pre_edit_hook(self):
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Edit", "session_id": "s-1", "cwd": self.repo,
+                 "tool_input": {"file_path": os.path.join(self.repo, "payments", "retry.py"), "old_string": "a", "new_string": "b"}}
+        code, out = self.run_hook(event)
+        self.assertEqual(code, 0)
+        payload = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual(payload["hookEventName"], "PreToolUse")
+        self.assertNotIn("permissionDecision", payload)  # it informs; it never decides
+        text = payload["additionalContext"]
+        for needle in ("payments/retry.py", "fragile", "Tried and reverted", "ADR-0002", "not an instruction"):
+            self.assertIn(needle, text)
+        self.assertLessEqual(len(text), 1800)
+        # Same file, same session: say it once.
+        self.assertEqual(self.run_hook(event), (0, ""))
+        # A new session hears it again; a quiet file, a path outside the repo and junk input say nothing.
+        self.assertTrue(self.run_hook(dict(event, session_id="s-2"))[1])
+        quiet = dict(event, session_id="s-3", tool_input={"file_path": os.path.join(self.repo, "tests", "test_retry.py")})
+        self.assertEqual(self.run_hook(quiet), (0, ""))
+        self.assertEqual(self.run_hook(dict(event, session_id="s-4", tool_input={"file_path": "/nonexistent/x.py"})), (0, ""))
+        self.assertEqual(self.run_hook("not json"), (0, ""))
+        self.assertEqual(self.run_hook({"tool_input": {}}), (0, ""))
+        code, out = self.run_hook("", "--plain", os.path.join(self.repo, "payments", "retry.py"))
+        self.assertTrue(out.startswith("History of payments/retry.py"))
+
+    def test_install_hook_merges_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            git(tmp, "init", "-q", "-b", "main")
+            write(tmp, ".claude/settings.json", json.dumps({"permissions": {"allow": ["Bash(ls:*)"]},
+                  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo hi"}]}]}}))
+            self.assertEqual(run_cli("install-hook", "--repo", tmp)[0], 0)
+            code, out, _ = run_cli("install-hook", "--repo", tmp)
+            self.assertIn("already", out)
+            with open(os.path.join(tmp, ".claude", "settings.json"), encoding="utf-8") as fh:
+                settings = json.load(fh)
+            self.assertEqual(settings["permissions"], {"allow": ["Bash(ls:*)"]})
+            groups = settings["hooks"]["PreToolUse"]
+            self.assertEqual([g["matcher"] for g in groups], ["Bash", "Edit|Write|MultiEdit|NotebookEdit"])
+            self.assertEqual(groups[1]["hooks"], [{"type": "command", "command": "pr-archaeologist hook", "timeout": 10}])
+
     def test_html_is_self_contained_and_escaped(self):
         with open(os.path.join(self.repo, "archaeology-graph.html"), encoding="utf-8") as fh:
             page = fh.read()

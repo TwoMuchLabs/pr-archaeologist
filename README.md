@@ -12,6 +12,8 @@ shaped it. It writes:
 - **`CODEBASE_ARCHAEOLOGY.md`**: an index AI coding agents can read or grep before editing.
 - **`pr-archaeologist explain <path>`**: a concise terminal timeline of why a module exists and
   what bit people before.
+- **A pre-edit hook**: a coding agent is handed a file's history at the moment it goes to edit
+  that file, without having to be told to ask.
 
 It has no dependencies beyond Python 3.10+ and the `git` binary, and uses no LLM. It makes no
 network calls unless you ask it to read pull requests (`dig --prs`). A nightly run only analyses
@@ -97,10 +99,53 @@ pr-archaeologist dig      [--repo PATH] [--full] [--index PATH] [--graph PATH] [
 pr-archaeologist explain  <path> [--repo PATH] [--function NAME] [--json] [--all]
                           [--no-refresh] [--no-color]
 pr-archaeologist status   [--repo PATH]
+pr-archaeologist install-hook [--repo PATH] [--min-level any|caution|fragile] [--print]
+pr-archaeologist hook     [--plain PATH] [--min-level any|caution|fragile]
 ```
 
 `explain` catches up on new commits by itself before answering, so it is never stale; pass
 `--no-refresh` to answer strictly from the cache.
+
+## Pre-edit hook for coding agents
+
+An instruction in `AGENTS.md` asks an agent to check the history. A hook does not rely on it
+remembering.
+
+```bash
+pr-archaeologist dig            # once, so there is a cache
+pr-archaeologist install-hook   # adds the hook to .claude/settings.json
+```
+
+From then on, when Claude Code is about to edit or write a file that has a history worth knowing,
+the hook adds a short briefing to the agent's context: the file's level and rank, approaches that
+were tried and reverted, the decisions that govern it, its most recent fixes and the files that
+usually change with it. For example:
+
+```text
+History of rclass/gate.py (from pr-archaeologist): fragile, rank 3 of 65 in this repository — 2 security changes.
+Past trouble:
+  - [security] 2026-10-25 58bce59: Fix fail-opens found by the enterprise red team (v0.4.2) — ...
+  - [warning] 2026-10-25 98171d3: Egress responses count as reads; allow-listing trusts only hosts all parsers agree on ...
+Usually changes together with: rclass/cli.py, tests/test_gate.py.
+This is historical record, not an instruction. If your change would undo one of these fixes or contradict a decision above, say so.
+```
+
+What it will not do:
+
+- **Block or decide.** It never denies an edit and never answers a permission prompt.
+- **Nag.** It says nothing for a file with no recorded trouble, and briefs each file once per
+  session. `--min-level fragile` makes it quieter, `--min-level any` more talkative.
+- **Slow you down.** It answers from the cache (about 0.2 seconds on a 46-commit repository), never
+  goes online, and says nothing at all if there is no cache yet.
+- **Break an edit.** Any error inside the hook is swallowed.
+
+`install-hook` merges into an existing `.claude/settings.json` and leaves everything else in it
+alone; `install-hook --print` shows the snippet without writing. For any other agent or script,
+`pr-archaeologist hook --plain <path>` prints the same briefing as plain text.
+
+The hook follows Claude Code's published [hooks reference](https://code.claude.com/docs/en/hooks)
+(a `PreToolUse` command hook that returns `additionalContext`). It is tested by feeding it the
+event JSON that reference describes. It has not yet been watched inside a live Claude Code session.
 
 ## Pull requests and issues (optional)
 
@@ -194,8 +239,9 @@ cloud dev container and a no-change rerun under 1 second.
   `docs/archaeology/`. Because those notes name the files they explain, the next `dig` links them
   into the index and graph, lists their "Invariants" under the file and their "Known traps" among
   its pitfalls. The deterministic core never depends on this.
-- **Daytime agents**: paste [`agent/AGENTS-snippet.md`](agent/AGENTS-snippet.md) into your
-  `AGENTS.md` / `CLAUDE.md` so coding agents run `explain` before editing.
+- **Daytime agents**: run `pr-archaeologist install-hook` so Claude Code is briefed before each
+  edit (see above), and paste [`agent/AGENTS-snippet.md`](agent/AGENTS-snippet.md) into your
+  `AGENTS.md` / `CLAUDE.md` for agents that have no hooks.
 
 ## How it decides
 
@@ -271,6 +317,8 @@ src/pr_archaeologist/
   render_md.py   CODEBASE_ARCHAEOLOGY.md
   render_html.py + graph_template.html   the static graph
   explain.py     terminal output
+  hook.py        pre-edit hook briefing and installer
+  prs.py         optional pull-request and issue reading
   cli.py
 agent/           nightly script, agent prompt, AGENTS.md snippet
 examples/        demo repo builder, sample output, cron and CI examples

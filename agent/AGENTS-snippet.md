@@ -5,7 +5,9 @@
 This repository keeps a generated history index, `CODEBASE_ARCHAEOLOGY.md`, refreshed nightly by
 pr-archaeologist.
 
-- Before changing a file, run `pr-archaeologist explain <path>` (add `--json` for structured
+- If the pre-edit hook is installed (`pr-archaeologist install-hook`), you are briefed on a file's
+  history automatically before editing it. Read that briefing.
+- Otherwise, before changing a file, run `pr-archaeologist explain <path>` (add `--json` for structured
   output, or `--function <name>` for one function). If the command is unavailable, open
   `CODEBASE_ARCHAEOLOGY.md` and search for the heading `### \`<path>\``.
 - If the file is marked **fragile** or **caution**, read its "Past pitfalls" first. Do not undo a

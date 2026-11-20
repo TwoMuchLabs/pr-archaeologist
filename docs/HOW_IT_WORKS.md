@@ -127,6 +127,20 @@ hidden couplings) at three commits, 50% and an overlap of 0.4.
 For a function, a risky commit is listed only if it came after the commit that wrote the
 function's oldest surviving lines.
 
+## 5b. The pre-edit hook (`hook.py`)
+
+`pr-archaeologist hook` is a Claude Code `PreToolUse` command hook, registered by `install-hook`
+for the `Edit`, `Write`, `MultiEdit` and `NotebookEdit` tools. It reads the event JSON on stdin,
+takes `tool_input.file_path`, finds the repository from that path, loads the cache and builds the
+model. If the file is live and at or above the chosen level (or has a reverted approach, a decision
+record or an agent note), it prints `{"hookSpecificOutput": {"hookEventName": "PreToolUse",
+"additionalContext": "<briefing>"}}` and exits 0. Otherwise it prints nothing and exits 0.
+
+The briefing is capped at 1,800 characters and ordered by usefulness: decisions and their
+invariants, reverted approaches, the latest fixes, then warnings. Files already briefed in a
+session are remembered in `.pr-archaeologist/hook-seen/<session id>`. If the cache is behind
+`HEAD` it catches up first (offline). Every failure path ends in "print nothing, exit 0".
+
 ## 6. Outputs
 
 - **Markdown**: every notable file gets a `### \`path\`` heading so an agent can grep for it. Quiet
