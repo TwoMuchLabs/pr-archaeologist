@@ -49,13 +49,18 @@ def brief(f: Dict) -> str:
     head = f"History of {f['path']} (from pr-archaeologist): {f['level']}"
     if f.get("rank"):
         head += f", rank {f['rank']} of {f['ranked_of']} in this repository"
-    counts = [f"{f['fixes']} fixes" if f["fixes"] else "", f"{f['security']} security changes" if f["security"] else "",
-              f"{f['reverts']} reverts" if f["reverts"] else ""]
+    def count(n: int, word: str, plural: str) -> str:
+        return f"{n} {word if n == 1 else plural}" if n else ""
+
+    counts = [count(f["fixes"], "fix", "fixes"), count(f["security"], "security change", "security changes"),
+              count(f["reverts"], "revert", "reverts")]
     counts = [c for c in counts if c]
     lines.append(head + (" — " + ", ".join(counts) if counts else "") + ".")
 
     for doc in f["docs"][:2]:
-        lines.append(f"Governed by {doc['label']}: {doc['title']} ({doc['path']}).")
+        verb = "Governed by" if doc["kind"] == "adr" else "Described in"
+        name = f"{doc['label']}: {doc['title']}" if doc["kind"] == "adr" else doc["title"]
+        lines.append(f"{verb} {name} ({doc['path']}).")
         for rule in doc.get("invariants", [])[:3]:
             lines.append(f"  Must hold: {rule}")
 
