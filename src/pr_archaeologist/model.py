@@ -12,7 +12,7 @@ import fnmatch
 import math
 import re
 from collections import Counter
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from .classify import strip_conventional
 
@@ -202,10 +202,8 @@ def _doc_ref(path: str, doc: Dict) -> Dict:
     }
 
 
-def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], bool],
-                 file_docs: List[Dict]) -> Dict:
-    commits_all = state["commits"]
-    names = {path, *rec["previous"]}
+def _ordered_commits(rec: Dict, commits_all: Dict[str, Dict]) -> List[Dict]:
+    """This file's commits, oldest first, each once."""
     seen, commits = set(), []
     for sha in rec["commits"]:
         if sha in commits_all and sha not in seen:
@@ -213,51 +211,55 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
             commits.append(commits_all[sha])
     order = {sha: i for i, sha in enumerate(rec["commits"])}
     commits.sort(key=lambda c: (c["date"], order[c["sha"]]))
+    return commits
 
+
+def _change_note(entry: Optional[List], first: bool) -> Optional[str]:
+    note = None
+    if entry and entry[3] == "R" and entry[4]:
+        note = f"renamed from {entry[4]}"
+    elif entry and entry[3] == "D":
+        note = "deleted"
+    return "born" if first and not note else note
+
+
+def _timeline_event(commit: Dict, entry: Optional[List], first: bool) -> Dict:
+    event = brief(commit)
+    event["note"] = _change_note(entry, first)
+    event["delta"] = [entry[1], entry[2]] if entry else [0, 0]
+    # A fix does not count against this file when the file was only created by it, or
+    # was barely touched in a commit that mostly changed other files (a version bump
+    # riding along with a real fix).
+    changed = sum(event["delta"])
+    # Does a remark in this commit's message (or its pull request) belong to this file?
+    # Yes for a small commit, or when this file carries a real share of the change; a
+    # sweeping commit's warnings are not repeated on every file it brushed.
+    total = sum(e[1] + e[2] for e in commit["files"]) or 1
+    event["local"] = len(commit["files"]) <= 6 or changed / total >= 0.25
+    event["incidental"] = bool(
+        commit["kind"] in RISKY_KINDS
+        and (first or (len(commit["files"]) > 3 and changed <= 2))
+    )
+    return event
+
+
+def _timeline(commits: List[Dict], names: set) -> Tuple[List[Dict], int]:
+    """One event per commit, and the total lines added and removed in this file."""
     churn = 0
     timeline = []
     for idx, commit in enumerate(commits):
         entry = next((e for e in commit["files"] if e[0] in names), None)
-        note = None
         if entry:
             churn += entry[1] + entry[2]
-            if entry[3] == "R" and entry[4]:
-                note = f"renamed from {entry[4]}"
-            elif entry[3] == "D":
-                note = "deleted"
-        if idx == 0 and not note:
-            note = "born"
-        event = brief(commit)
-        event["note"] = note
-        event["delta"] = [entry[1], entry[2]] if entry else [0, 0]
-        # A fix does not count against this file when the file was only created by it, or
-        # was barely touched in a commit that mostly changed other files (a version bump
-        # riding along with a real fix).
-        changed = sum(event["delta"])
-        # Does a remark in this commit's message (or its pull request) belong to this file?
-        # Yes for a small commit, or when this file carries a real share of the change; a
-        # sweeping commit's warnings are not repeated on every file it brushed.
-        total = sum(e[1] + e[2] for e in commit["files"]) or 1
-        event["local"] = len(commit["files"]) <= 6 or changed / total >= 0.25
-        event["incidental"] = bool(
-            commit["kind"] in RISKY_KINDS
-            and (idx == 0 or (len(commit["files"]) > 3 and changed <= 2))
-        )
-        timeline.append(event)
+        timeline.append(_timeline_event(commit, entry, idx == 0))
+    return timeline, churn
 
-    counted = [e for e in timeline if not e["incidental"]]
-    fixes = [e for e in counted if e["kind"] == "fix"]
-    security = [e for e in counted if e["kind"] == "security"]
-    reverts = [e for e in counted if e["kind"] == "revert"]
-    hotfixes = [e for e in counted if "hotfix" in e["tags"]]
-    authors = Counter(e["author"] for e in timeline)
-    blame = state["blame"].get(path, {})
-    tripwires = blame.get("tripwires", [])
 
-    # Co-change: what else moves when this file moves. Jaccard overlap keeps out the files
-    # that change with everything (a README touched by half of all commits is not coupling).
-    coupled = []
-    total = max(1, len(commits))
+def _coupling(path: str, state: Dict, ignored: Callable[[str], bool], commit_count: int) -> List[Dict]:
+    """Co-change: what else moves when this file moves. Jaccard overlap keeps out the files
+    that change with everything (a README touched by half of all commits is not coupling)."""
+    coupled: List[Dict] = []
+    total = max(1, commit_count)
     for other, n in sorted(state["cochange"].get(path, {}).items(), key=lambda kv: (-kv[1], kv[0])):
         other_rec = state["files"].get(other)
         if not other_rec or other_rec["deleted"] or ignored(other):
@@ -273,32 +275,31 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
                             "strong": n >= 3 and ratio >= 0.5 and overlap >= 0.4})
         if len(coupled) >= 6:
             break
-    strong = [c for c in coupled if c["strong"]]
-    prose = is_prose(path)
+    return coupled
 
-    score = _score(len(fixes), len(reverts), len(security), len(hotfixes), len(commits),
-                   len(authors), len(tripwires), len(strong))
-    if not (fixes or reverts or security or hotfixes or tripwires):
-        score = min(score, CAUTION - 1)  # churn and coupling alone never make a file "caution"
-    reasons = []
-    if prose:
-        score = 0  # documentation is not scored; its history is still shown
-    if fixes:
-        reasons.append(f"{len(fixes)} bug fix{'es' if len(fixes) != 1 else ''}")
-    if reverts:
-        reasons.append(f"{len(reverts)} revert{'s' if len(reverts) != 1 else ''}")
-    if security:
-        reasons.append(f"{len(security)} security change{'s' if len(security) != 1 else ''}")
-    if hotfixes:
-        reasons.append(f"{len(hotfixes)} hotfix{'es' if len(hotfixes) != 1 else ''}")
+
+def _counted(n: int, word: str, plural: str = "s") -> str:
+    return f"{n} {word}{plural if n != 1 else ''}"
+
+
+def _reasons(fixes: List, reverts: List, security: List, hotfixes: List, authors: Counter,
+             strong: List[Dict], tripwires: List) -> List[str]:
+    counts = (
+        (len(fixes), "bug fix", "es"), (len(reverts), "revert", "s"),
+        (len(security), "security change", "s"), (len(hotfixes), "hotfix", "es"),
+    )
+    reasons = [_counted(n, word, plural) for n, word, plural in counts if n]
     if len(authors) > 2:
         reasons.append(f"{len(authors)} authors")
     if strong:
         reasons.append(f"tightly coupled to {strong[0]['path']}")
     if tripwires:
-        reasons.append(f"{len(tripwires)} warning comment{'s' if len(tripwires) != 1 else ''}")
+        reasons.append(_counted(len(tripwires), "warning comment"))
+    return reasons
 
-    # Intent: the birth commit, the redesigns, and any decision record that names this file.
+
+def _intent(timeline: List[Dict]) -> List[Dict]:
+    """The birth commit, the redesigns, and any decision record that names this file."""
     intent = []
     if timeline:
         born = timeline[0]
@@ -312,75 +313,98 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
         if event["kind"] == "design" or "design" in event["tags"]:
             intent.append({"source": "commit", "ref": event["short"], "date": event["date"],
                            "author": event["author"], "text": event["title"], "why": event["why"][:1]})
-    intent = intent[:1] + intent[1:][-3:]
+    return intent[:1] + intent[1:][-3:]
 
-    # Pitfalls: everything a future editor should know went wrong or is easy to get wrong.
-    pitfalls = []
-    said = set()  # a pull request with five commits should say its piece once per file
-    for event in counted:
-        if event["reverted_by"]:
-            by = commits_all.get(event["reverted_by"])
-            reason = (by["why"][0] if by and by.get("why") else "")
-            pitfalls.append({
-                "kind": "reverted", "date": event["date"], "ref": event["short"],
-                "text": f"Tried and reverted: {event['title']}" + (f" — {reason}" if reason else ""),
-            })
-        elif event["kind"] in ("fix", "security") or (event["kind"] == "revert" and not event["reverts"]):
-            why = event["why"][0] if event["why"] else ""
-            pitfalls.append({
-                "kind": event["kind"], "date": event["date"], "ref": event["short"],
-                "text": event["title"] + (f" — {why}" if why else ""),
-            })
-        stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
 
-        def belongs(text: str) -> bool:
-            return event["local"] or (len(stem) >= 4 and stem in text.lower())
+def _undone_or_fixed(event: Dict, commits_all: Dict[str, Dict]) -> List[Dict]:
+    """The pitfall an event is in itself: something tried and reverted, or a fix."""
+    if event["reverted_by"]:
+        by = commits_all.get(event["reverted_by"])
+        reason = (by["why"][0] if by and by.get("why") else "")
+        return [{
+            "kind": "reverted", "date": event["date"], "ref": event["short"],
+            "text": f"Tried and reverted: {event['title']}" + (f" — {reason}" if reason else ""),
+        }]
+    if event["kind"] in ("fix", "security") or (event["kind"] == "revert" and not event["reverts"]):
+        why = event["why"][0] if event["why"] else ""
+        return [{
+            "kind": event["kind"], "date": event["date"], "ref": event["short"],
+            "text": event["title"] + (f" — {why}" if why else ""),
+        }]
+    return []
 
-        for warning in event["warn"]:
-            if belongs(warning):
-                pitfalls.append({"kind": "warning", "date": event["date"], "ref": event["short"], "text": warning})
-        risky = event["kind"] in RISKY_KINDS or bool(event["reverted_by"])
-        for note in event["issue_notes"] if risky else []:
-            # The issue a fix closed is the problem report: what went wrong, as it was seen.
-            if ("issue", note["issue"]) in said:
-                continue
-            said.add(("issue", note["issue"]))
-            text = "Reported: " + note["title"]
-            if note["lead"] and note["lead"].lower() != note["title"].lower():
-                text += " — " + note["lead"]
-            pitfalls.append({"kind": "issue", "date": event["date"], "ref": f"#{note['issue']}", "text": text})
-            for extra in note["warn"] + [f"{d['author']}: {d['text']}" for d in note["discussion"]]:
-                pitfalls.append({"kind": "issue", "date": event["date"], "ref": f"#{note['issue']}", "text": extra})
-        for note in event["pr_notes"]:
-            # A pull request's warnings always matter; its reasons and review remarks only
-            # for the changes that fixed or undid something.
-            if (note["pr"], note["text"]) in said or not belongs(note["text"]):
-                continue
-            if note["kind"] == "warn" or (risky and note["kind"] in ("review", "why")):
-                said.add((note["pr"], note["text"]))
-                label = "review" if note["kind"] == "review" else "warning" if note["kind"] == "warn" else event["kind"]
-                who = f"{note['author']}: " if note["kind"] == "review" and note["author"] else ""
-                pitfalls.append({"kind": label, "date": event["date"], "ref": f"PR #{note['pr']}",
-                                 "text": who + note["text"]})
+
+def _issue_pitfalls(event: Dict, said: set) -> List[Dict]:
+    """The issue a fix closed is the problem report: what went wrong, as it was seen."""
+    out = []
+    for note in event["issue_notes"]:
+        if ("issue", note["issue"]) in said:
+            continue
+        said.add(("issue", note["issue"]))
+        text = "Reported: " + note["title"]
+        if note["lead"] and note["lead"].lower() != note["title"].lower():
+            text += " — " + note["lead"]
+        out.append({"kind": "issue", "date": event["date"], "ref": f"#{note['issue']}", "text": text})
+        for extra in note["warn"] + [f"{d['author']}: {d['text']}" for d in note["discussion"]]:
+            out.append({"kind": "issue", "date": event["date"], "ref": f"#{note['issue']}", "text": extra})
+    return out
+
+
+def _pr_pitfalls(event: Dict, risky: bool, belongs: Callable[[str], bool], said: set) -> List[Dict]:
+    """A pull request's warnings always matter; its reasons and review remarks only for
+    the changes that fixed or undid something."""
+    out = []
+    for note in event["pr_notes"]:
+        if (note["pr"], note["text"]) in said or not belongs(note["text"]):
+            continue
+        if note["kind"] == "warn" or (risky and note["kind"] in ("review", "why")):
+            said.add((note["pr"], note["text"]))
+            label = "review" if note["kind"] == "review" else "warning" if note["kind"] == "warn" else event["kind"]
+            who = f"{note['author']}: " if note["kind"] == "review" and note["author"] else ""
+            out.append({"kind": label, "date": event["date"], "ref": f"PR #{note['pr']}",
+                        "text": who + note["text"]})
+    return out
+
+
+def _event_pitfalls(event: Dict, stem: str, commits_all: Dict[str, Dict], said: set) -> List[Dict]:
+    def belongs(text: str) -> bool:
+        return event["local"] or (len(stem) >= 4 and stem in text.lower())
+
+    out = _undone_or_fixed(event, commits_all)
+    out += [{"kind": "warning", "date": event["date"], "ref": event["short"], "text": warning}
+            for warning in event["warn"] if belongs(warning)]
+    risky = event["kind"] in RISKY_KINDS or bool(event["reverted_by"])
+    if risky:
+        out += _issue_pitfalls(event, said)
+    return out + _pr_pitfalls(event, risky, belongs, said)
+
+
+def _standing_pitfalls(tripwires: List[Dict], strong: List[Dict], file_docs: List[Dict],
+                       commits_all: Dict[str, Dict]) -> List[Dict]:
+    """Hazards that are true of the file now: warning comments, coupling, decision records."""
+    out = []
     for wire in tripwires:
         owner = commits_all.get(wire.get("sha") or "")
-        pitfalls.append({
+        out.append({
             "kind": "comment", "date": owner["date"][:10] if owner else "",
             "ref": owner["sha"][:7] if owner else "", "text": f"L{wire['line']}: {wire['text']}",
         })
     for link in strong:
-        pitfalls.append({
+        out.append({
             "kind": "coupling", "date": "", "ref": "",
             "text": f"Changes together with {link['path']} ({link['count']} of {link['of']} commits) — check it when editing this file.",
         })
     for doc in file_docs:
         for trap in doc.get("traps", []):
-            pitfalls.append({"kind": "note", "date": doc.get("date") or "", "ref": doc["path"], "text": trap})
+            out.append({"kind": "note", "date": doc.get("date") or "", "ref": doc["path"], "text": trap})
         if doc["kind"] == "adr" and doc.get("consequences"):
-            pitfalls.append({"kind": "decision", "date": doc.get("date") or "", "ref": doc["label"],
-                             "text": f"{doc['title']}: {doc['consequences']}"})
+            out.append({"kind": "decision", "date": doc.get("date") or "", "ref": doc["label"],
+                        "text": f"{doc['title']}: {doc['consequences']}"})
+    return out
 
-    # Functions: who owns the surviving lines, plus fixes that ever touched the function by name.
+
+def _fixes_by_symbol(timeline: List[Dict], commits: List[Dict], names: set) -> Dict[str, List[Dict]]:
+    """Fixes that ever touched a function by name (from the hunk headers of the commit)."""
     hint_fixes: Dict[str, List[Dict]] = {}
     for event, commit in zip(timeline, commits):
         if commit["kind"] not in RISKY_KINDS and commit["kind"] != "perf":
@@ -389,27 +413,68 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
             if hinted_path in names:
                 for sym in sym_names:
                     hint_fixes.setdefault(sym, []).append(event)
-    symbols = []
-    for sym in blame.get("symbols", []):
-        owners = [commits_all[s] for s in sym["commits"] if s in commits_all]
-        if not owners:
-            continue
-        owners.sort(key=lambda c: c["date"])
-        short_name = sym["name"].rsplit(".", 1)[-1]
-        # A fix that *wrote* the function is its origin, not a fix to it.
-        origin_sha = owners[0]["sha"]
-        risky = {c["sha"]: brief(c) for c in owners if c["kind"] in RISKY_KINDS and c["sha"] != origin_sha}
-        for event in hint_fixes.get(short_name, []):
-            if event["sha"] != origin_sha and event["date"] >= owners[0]["date"][:10]:
-                risky.setdefault(event["sha"], event)
-        history = sorted(risky.values(), key=lambda e: e["date"])
-        container = any(o["name"].startswith(sym["name"] + ".") for o in blame.get("symbols", []))
-        symbols.append({
-            "name": sym["name"], "kind": sym["kind"], "start": sym["start"], "end": sym["end"],
-            "container": container,  # a class whose methods are listed separately
-            "origin": brief(owners[0]), "last": brief(owners[-1]),
-            "fixes": [{k: e[k] for k in ("short", "date", "kind", "title", "why")} for e in history],
-        })
+    return hint_fixes
+
+
+def _symbol_report(sym: Dict, all_symbols: List[Dict], commits_all: Dict[str, Dict],
+                   hint_fixes: Dict[str, List[Dict]]) -> Optional[Dict]:
+    """Who owns the surviving lines of one function, and the fixes made to it."""
+    owners = [commits_all[s] for s in sym["commits"] if s in commits_all]
+    if not owners:
+        return None
+    owners.sort(key=lambda c: c["date"])
+    short_name = sym["name"].rsplit(".", 1)[-1]
+    # A fix that *wrote* the function is its origin, not a fix to it.
+    origin_sha = owners[0]["sha"]
+    risky = {c["sha"]: brief(c) for c in owners if c["kind"] in RISKY_KINDS and c["sha"] != origin_sha}
+    for event in hint_fixes.get(short_name, []):
+        if event["sha"] != origin_sha and event["date"] >= owners[0]["date"][:10]:
+            risky.setdefault(event["sha"], event)
+    history = sorted(risky.values(), key=lambda e: e["date"])
+    container = any(o["name"].startswith(sym["name"] + ".") for o in all_symbols)
+    return {
+        "name": sym["name"], "kind": sym["kind"], "start": sym["start"], "end": sym["end"],
+        "container": container,  # a class whose methods are listed separately
+        "origin": brief(owners[0]), "last": brief(owners[-1]),
+        "fixes": [{k: e[k] for k in ("short", "date", "kind", "title", "why")} for e in history],
+    }
+
+
+def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], bool],
+                 file_docs: List[Dict]) -> Dict:
+    commits_all = state["commits"]
+    names = {path, *rec["previous"]}
+    commits = _ordered_commits(rec, commits_all)
+    timeline, churn = _timeline(commits, names)
+
+    counted = [e for e in timeline if not e["incidental"]]
+    fixes = [e for e in counted if e["kind"] == "fix"]
+    security = [e for e in counted if e["kind"] == "security"]
+    reverts = [e for e in counted if e["kind"] == "revert"]
+    hotfixes = [e for e in counted if "hotfix" in e["tags"]]
+    authors = Counter(e["author"] for e in timeline)
+    blame = state["blame"].get(path, {})
+    tripwires = blame.get("tripwires", [])
+    coupled = _coupling(path, state, ignored, len(commits))
+    strong = [c for c in coupled if c["strong"]]
+    prose = is_prose(path)
+
+    score = _score(len(fixes), len(reverts), len(security), len(hotfixes), len(commits),
+                   len(authors), len(tripwires), len(strong))
+    if not (fixes or reverts or security or hotfixes or tripwires):
+        score = min(score, CAUTION - 1)  # churn and coupling alone never make a file "caution"
+    if prose:
+        score = 0  # documentation is not scored; its history is still shown
+
+    # Pitfalls: everything a future editor should know went wrong or is easy to get wrong.
+    stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+    said: set = set()  # a pull request with five commits should say its piece once per file
+    pitfalls = [p for event in counted for p in _event_pitfalls(event, stem, commits_all, said)]
+    pitfalls += _standing_pitfalls(tripwires, strong, file_docs, commits_all)
+
+    hint_fixes = _fixes_by_symbol(timeline, commits, names)
+    all_symbols = blame.get("symbols", [])
+    symbols = [s for s in (_symbol_report(sym, all_symbols, commits_all, hint_fixes) for sym in all_symbols) if s]
 
     deleted = commits_all.get(rec["deleted"] or "")
     return {
@@ -432,8 +497,8 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
         "rank": None,
         "ranked_of": None,
         "prose": prose,
-        "reasons": reasons,
-        "intent": intent,
+        "reasons": _reasons(fixes, reverts, security, hotfixes, authors, strong, tripwires),
+        "intent": _intent(timeline),
         "docs": file_docs,
         "timeline": timeline,
         "pitfalls": pitfalls,

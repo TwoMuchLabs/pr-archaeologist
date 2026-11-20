@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Does a change to the code change what the tool says? Find out on real repositories.
 
-    python scripts/behaviour_check.py <base-ref> <repo> [<repo> ...]
+    python scripts/behaviour_check.py [--quick] <base-ref> <repo> [<repo> ...]
 
 Runs the tool from <base-ref> and from the working tree over a copy of each
 repository, saves everything a user could see, and compares the two. Use it
@@ -19,6 +19,10 @@ What one snapshot covers:
   - the same model with invented pull requests and issues attached, so the
     code that uses them runs offline: the report, the graph, the index, and
     every file, function and directory explanation, plain and coloured
+
+--quick skips the per-file command-line calls (the slow part) and keeps the
+`dig` runs and the invented-pull-request model: use it while working, and the
+full check before pushing.
 
 Not covered: fetching from GitHub (`dig --prs` itself), `install-hook` writing
 to disk, and anything a repository in the sample does not contain. A clean
@@ -159,7 +163,7 @@ def model_snapshot(repo, out):
     dump("hook-briefs.txt", "\n=====\n".join(briefs))
 
 
-def snapshot(repo, out):
+def snapshot(repo, out, quick=False):
     os.makedirs(out, exist_ok=True)
     counter = [0]
 
@@ -193,6 +197,8 @@ def snapshot(repo, out):
     with open(os.path.join(repo, "model.json"), encoding="utf-8") as fh:
         report = json.load(fh)
     model_snapshot(repo, out)
+    if quick:
+        return counter[0]
     os.chdir(repo)
     paths = sample_files(report)
     for path in paths:
@@ -229,8 +235,10 @@ def compare(a, b):
 
 
 def main(argv):
+    quick = "--quick" in argv
+    argv = [a for a in argv if a != "--quick"]
     if len(argv) >= 3 and argv[0] == "snapshot":
-        print(snapshot(os.path.abspath(argv[1]), os.path.abspath(argv[2])))
+        print(snapshot(os.path.abspath(argv[1]), os.path.abspath(argv[2]), quick))
         return 0
     if len(argv) < 2:
         print(__doc__)
@@ -250,7 +258,7 @@ def main(argv):
         shutil.copytree(source, copy, symlinks=True)
         shutil.rmtree(os.path.join(copy, ".pr-archaeologist"), ignore_errors=True)  # start without a cache
         env = dict(os.environ, PYTHONPATH=sources[label], NO_COLOR="1")
-        command = [sys.executable, os.path.abspath(__file__), "snapshot", copy, os.path.join(work, label, name)]
+        command = [sys.executable, os.path.abspath(__file__), "snapshot", copy, os.path.join(work, label, name)] + ["--quick"] * quick
         return subprocess.Popen(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
 
     failed = False
