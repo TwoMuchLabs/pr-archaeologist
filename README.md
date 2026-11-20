@@ -128,10 +128,11 @@ warnings, and remarks from human reviewers that explain or warn. Template scaffo
 
 Tried on Reversibility Classes (8 pull requests, about 7 seconds) and, through the field-test
 workflow below, on Flask: 300 pull requests read in about four minutes, 45 with a stated reason,
-26 with a warning. Reviewer remarks are deliberately rare. A first pass kept 30 remarks from 150
+24 with a warning. Reviewer remarks are deliberately rare. A first pass kept 30 remarks from 150
 pull requests and most were conversation ("Why not keep it as it is?"); the rule is now that a
-remark must state a hazard or a rule about the code, which kept 12 from 300. By our reading about
-half of those are useful, so treat reviewer remarks as leads, not facts.
+remark must state a hazard or a rule about the code and must not read as conversation, which kept
+6 from 300. Most of those six are substantive, but six is a small sample: treat reviewer remarks
+as leads, not facts.
 
 A warning from a commit or its pull request is attached to a file only when the commit is small,
 the file carries a quarter or more of the change, or the warning names the file. Otherwise one
