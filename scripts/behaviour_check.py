@@ -17,7 +17,8 @@ What one snapshot covers:
   - `explain` and the hook before any cache exists, `explain` building the
     cache itself, and the hook catching up after a new commit
   - `dig` again with nothing new, `dig --full --no-blame --max-commits` with a
-    small graph, and `dig` after the last commit has been rewritten
+    small graph, `dig` after the last commit has been rewritten, and
+    `dig --full --max-blame-files 5`
 
   - the same model with invented pull requests and issues attached, so the
     code that uses them runs offline: the report, the graph, the index, and
@@ -216,6 +217,8 @@ def snapshot(repo, out, quick=False):
                        env=dict(os.environ, **fixed), check=True)
         save("dig-rewritten", run_cli(["dig", "--repo", repo, "--json", "model.json"]))
         keep_outputs("rewritten")
+        save("dig-blame-budget", run_cli(["dig", "--repo", repo, "--full", "--max-blame-files", "5", "--json", "model.json"]))
+        keep_outputs("blame-budget")
         # `explain` with no cache builds one; the hook then has to catch up on a new commit.
         busiest = sample_files(report)[0]
         shutil.rmtree(os.path.join(repo, ".pr-archaeologist"))
