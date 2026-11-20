@@ -152,6 +152,30 @@ def _move_cochange(co: Dict, old: str, new: str) -> None:
             partner[new] = partner.get(new, 0) + partner.pop(old, 0)
 
 
+def _rename(files: Dict, co: Dict, old: str, path: str) -> None:
+    """Carry a file's past over to its new name; merge if that name was used before."""
+    rec = files.pop(old, None) or _new_file()
+    if old not in rec["previous"]:
+        rec["previous"].append(old)
+    existing = files.get(path)
+    if existing:  # the new name was used before: merge both pasts
+        rec["commits"] = existing["commits"] + rec["commits"]
+        rec["previous"] = existing["previous"] + rec["previous"]
+        rec["born"] = existing["born"] or rec["born"]
+    files[path] = rec
+    _move_cochange(co, old, path)
+
+
+def _count_cochange(co: Dict, touched: List[str]) -> None:
+    if not 2 <= len(touched) <= COCHANGE_MAX_FILES:
+        return
+    for a in touched:
+        row = co.setdefault(a, {})
+        for b in touched:
+            if a != b:
+                row[b] = row.get(b, 0) + 1
+
+
 def apply_commit(state: Dict, commit: Dict) -> None:
     """Fold one commit (oldest-first order) into the file histories and coupling counts."""
     sha = commit["sha"]
@@ -159,16 +183,7 @@ def apply_commit(state: Dict, commit: Dict) -> None:
     touched: List[str] = []
     for path, _added, _deleted, status, old in commit["files"]:
         if status == "R" and old and old != path:
-            rec = files.pop(old, None) or _new_file()
-            if old not in rec["previous"]:
-                rec["previous"].append(old)
-            existing = files.get(path)
-            if existing:  # the new name was used before: merge both pasts
-                rec["commits"] = existing["commits"] + rec["commits"]
-                rec["previous"] = existing["previous"] + rec["previous"]
-                rec["born"] = existing["born"] or rec["born"]
-            files[path] = rec
-            _move_cochange(co, old, path)
+            _rename(files, co, old, path)
         rec = files.setdefault(path, _new_file())
         rec["commits"].append(sha)
         if rec["born"] is None:
@@ -178,12 +193,7 @@ def apply_commit(state: Dict, commit: Dict) -> None:
         elif rec["deleted"]:
             rec["deleted"] = None  # resurrected
         touched.append(path)
-    if 2 <= len(touched) <= COCHANGE_MAX_FILES:
-        for a in touched:
-            row = co.setdefault(a, {})
-            for b in touched:
-                if a != b:
-                    row[b] = row.get(b, 0) + 1
+    _count_cochange(co, touched)
 
 
 def _attributes_file(repo: str) -> str:
