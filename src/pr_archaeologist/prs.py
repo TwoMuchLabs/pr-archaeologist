@@ -261,6 +261,66 @@ def update_issues(state: Dict, fetch: FetchJson, base: str, limit: int, result: 
             break
 
 
+def _wanted_prs(state: Dict) -> Dict[int, str]:
+    """Pull requests commits refer to, each with the date of the newest commit that does."""
+    wanted: Dict[int, str] = {}
+    for commit in state["commits"].values():
+        for number in commit.get("prs", []):
+            if commit["date"] > wanted.get(number, ""):
+                wanted[number] = commit["date"]
+    return wanted
+
+
+def _unread(entry: Optional[Dict]) -> bool:
+    """Not cached yet, still open, or cached before issues were read (so it does not say what it closes)."""
+    if entry is None or entry.get("state") == "open":
+        return True
+    return entry.get("state") != "missing" and "closes" not in entry
+
+
+def _read_pr(fetch: FetchJson, base: str, number: int) -> Optional[Dict]:
+    """One pull request with its comments, review comments and reviews, summarised."""
+    pr = fetch(f"{base}/pulls/{number}")
+    if not isinstance(pr, dict):
+        return None
+    comments: List[Dict] = []
+    if pr.get("comments"):
+        comments += list(fetch(f"{base}/issues/{number}/comments?per_page=100") or [])
+    if pr.get("review_comments"):
+        comments += list(fetch(f"{base}/pulls/{number}/comments?per_page=100") or [])
+    comments += [r for r in list(fetch(f"{base}/pulls/{number}/reviews?per_page=100") or []) if r.get("body")]
+    return summarise(pr, comments)
+
+
+def _stop_after(exc: Exception, result: Dict) -> bool:
+    """Count a failed request. True when the run should stop: no access, rate limited, or no network."""
+    result["failed"] += 1
+    if not isinstance(exc, urllib.error.HTTPError):
+        result["skipped"] = f"could not reach GitHub ({exc.__class__.__name__})"
+        return True
+    if exc.code in (401, 403, 429):  # try again next run
+        result["skipped"] = f"GitHub answered {exc.code}; set GH_TOKEN or try again later"
+        return True
+    return False
+
+
+def _read_prs(todo: List[int], fetch: FetchJson, base: str, cached: Dict, result: Dict) -> None:
+    """Read each pull request into the cache, counting what was read and what failed."""
+    for number in todo:
+        try:
+            summary = _read_pr(fetch, base, number)
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            if isinstance(exc, urllib.error.HTTPError) and exc.code == 404:
+                # "#12" was an issue, or the PR lives in another repository
+                cached[str(number)] = {"number": number, "state": "missing"}
+            elif _stop_after(exc, result):
+                break
+            continue
+        if summary is not None:
+            cached[str(number)] = summary
+            result["fetched"] += 1
+
+
 def update(
     repo: str,
     state: Dict,
@@ -271,17 +331,9 @@ def update(
     """Fetch the pull requests commits refer to that are not cached yet. Never raises."""
     say = progress or (lambda _m: None)
     cached = state.setdefault("prs", {})
-    wanted: Dict[int, str] = {}
-    for commit in state["commits"].values():
-        for number in commit.get("prs", []):
-            if commit["date"] > wanted.get(number, ""):
-                wanted[number] = commit["date"]
-    todo = [
-        n for n, _date in sorted(wanted.items(), key=lambda kv: kv[1], reverse=True)
-        if str(n) not in cached or cached[str(n)].get("state") == "open"
-        # summaries cached before issues were read do not say what they close: read once more
-        or (cached[str(n)].get("state") != "missing" and "closes" not in cached[str(n)])
-    ][:limit]
+    wanted = _wanted_prs(state)
+    newest_first = sorted(wanted.items(), key=lambda kv: kv[1], reverse=True)
+    todo = [n for n, _date in newest_first if _unread(cached.get(str(n)))][:limit]
     result = {"fetched": 0, "cached": len(wanted) - len(todo), "failed": 0, "skipped": "",
               "issues": 0, "issues_cached": 0}
     slug = remote_slug(repo)
@@ -294,30 +346,7 @@ def update(
     base = f"/repos/{owner}/{name}"
     if todo:
         say(f"  reading {len(todo)} pull request(s) from GitHub")
-    for number in todo:
-        try:
-            pr = fetch(f"{base}/pulls/{number}")
-            comments: List[Dict] = []
-            if isinstance(pr, dict):
-                if pr.get("comments"):
-                    comments += list(fetch(f"{base}/issues/{number}/comments?per_page=100") or [])
-                if pr.get("review_comments"):
-                    comments += list(fetch(f"{base}/pulls/{number}/comments?per_page=100") or [])
-                comments += [r for r in list(fetch(f"{base}/pulls/{number}/reviews?per_page=100") or []) if r.get("body")]
-                cached[str(number)] = summarise(pr, comments)
-                result["fetched"] += 1
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:  # "#12" was an issue, or the PR lives in another repository
-                cached[str(number)] = {"number": number, "state": "missing"}
-                continue
-            result["failed"] += 1
-            if exc.code in (401, 403, 429):  # no access or rate limited: stop, try again next run
-                result["skipped"] = f"GitHub answered {exc.code}; set GH_TOKEN or try again later"
-                break
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            result["failed"] += 1
-            result["skipped"] = f"could not reach GitHub ({exc.__class__.__name__})"
-            break
+    _read_prs(todo, fetch, base, cached, result)
     if not result["skipped"]:
         update_issues(state, fetch, base, limit, result)
     return result
