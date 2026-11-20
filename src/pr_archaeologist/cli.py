@@ -121,6 +121,8 @@ def cmd_dig(args) -> int:
         got = done["prs"]
         note = f" ({got['skipped']})" if got["skipped"] else ""
         say(f"  pull requests: {got['fetched']} read, {got['cached']} cached{note}")
+        if got["issues"] or got["issues_cached"]:
+            say(f"  issues they closed: {got['issues']} read, {got['issues_cached']} cached")
     say(f"  files: {counts['fragile']} fragile, {counts['caution']} caution, {counts['stable']} stable")
     say("  wrote: " + (", ".join(wrote) if wrote else "nothing (outputs already up to date)"))
     return 0

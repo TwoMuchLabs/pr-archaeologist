@@ -102,10 +102,10 @@ pr-archaeologist status   [--repo PATH]
 `explain` catches up on new commits by itself before answering, so it is never stale; pass
 `--no-refresh` to answer strictly from the cache.
 
-## Pull requests (optional)
+## Pull requests and issues (optional)
 
-Commit messages say what changed. The pull request usually says why, and the review says what
-nearly went wrong.
+Commit messages say what changed. The pull request usually says why, the issue it closed says what
+was wrong in the words of whoever hit it, and the review says what nearly went wrong.
 
 ```bash
 pr-archaeologist dig --prs      # remembered: later runs keep reading new pull requests
@@ -118,11 +118,16 @@ warnings, and remarks from human reviewers that explain or warn. Template scaffo
 (checklists, HTML comments, code blocks), bot comments and paperwork remarks ("please rebase",
 "not signed off") are dropped. A pull request with several commits says its piece once per file.
 
+It also reads the issues that a commit or its pull request closes ("Fixes #30"). For a fix, the
+issue's title and opening line appear among the file's pitfalls as "Reported: …"; for the commit
+that created a file, as "Asked for in #30: …". Only issues named with a closing keyword are read,
+not every `#number` mentioned in passing.
+
 - Works for repositories whose `origin` is on github.com. It uses `GH_TOKEN` or `GITHUB_TOKEN`
   if set, else the `gh` CLI's login, else anonymous access (public repositories, low rate limit).
-- Each pull request is read once and cached; open ones are re-read until they close. At most 300
-  new pull requests are read per run (`--max-prs`), newest first, so a large backlog fills in over
-  several nights.
+- Each pull request and issue is read once and cached; open ones are re-read until they close. At
+  most 300 new pull requests and 300 new issues are read per run (`--max-prs`), newest first, so a
+  large backlog fills in over several nights.
 - If GitHub cannot be reached, the run carries on without them.
 - `explain` never touches the network; it shows what `dig` has cached.
 
@@ -152,7 +157,7 @@ itself in git). Three independent keys keep nightly runs cheap:
 | History (`git log`) | The commit the cache was built up to | New commits exist: only `cached..HEAD` is read |
 | Blame and function mapping | Per file: blob sha + latest commit touching it | That file changed |
 | Markdown / ADR parsing | Per file: content hash | That doc was edited |
-| Pull requests (`--prs`) | Pull-request number | Not seen before, or still open |
+| Pull requests and issues (`--prs`) | Their number | Not seen before, or still open |
 
 If the cached commit is no longer an ancestor of `HEAD` (force-push, rebase), the history is rebuilt
 automatically. `--full` forces a rebuild. The test suite asserts that an incremental run produces
@@ -230,8 +235,8 @@ where that project's review and red-team findings actually landed.
   not measured for accuracy.
 - Symbol extraction uses Python's `ast` for Python and regex plus brace matching for other
   languages. It is approximate outside Python.
-- Pull requests are read only from github.com, and only those a commit message names. Issues are
-  not read. Reading takes about a second per pull request.
+- Pull requests and issues are read only from github.com, and only those a commit message (or a
+  pull request it names) points to. Reading takes about a second each.
 - Quoted commit and pull-request text is untrusted. The index tells agents to treat it as record,
   not instruction, and the graph escapes it, but a reader should keep that in mind.
 - Only Markdown docs are parsed (not reStructuredText or AsciiDoc).

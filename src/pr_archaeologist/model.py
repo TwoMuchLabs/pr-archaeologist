@@ -57,6 +57,27 @@ def make_ignore(patterns: Iterable[str]) -> Callable[[str], bool]:
 
 
 _PRS: Dict[str, Dict] = {}  # set by build(); pull-request summaries keyed by number
+_ISSUES: Dict[str, Dict] = {}  # set by build(); summaries of issues that were closed
+
+
+def issue_notes(commit: Dict) -> List[Dict]:
+    """The problem reports this commit (or its pull request) closed."""
+    from .prs import closing_refs  # local import: prs imports nothing from model
+
+    numbers = closing_refs(commit["subject"] + "\n" + commit.get("body", ""))
+    for pr_number in commit.get("prs", []):
+        numbers += (_PRS.get(str(pr_number)) or {}).get("closes", [])
+    notes: List[Dict] = []
+    for number in dict.fromkeys(numbers):
+        issue = _ISSUES.get(str(number))
+        if not issue or issue.get("state") == "missing":
+            continue
+        notes.append({
+            "issue": number, "title": issue.get("title", ""), "author": issue.get("author", ""),
+            "lead": issue.get("lead"), "warn": issue.get("warn", []),
+            "discussion": issue.get("discussion", []),
+        })
+    return notes[:3]
 
 
 def pr_notes(commit: Dict) -> List[Dict]:
@@ -87,6 +108,7 @@ def pr_notes(commit: Dict) -> List[Dict]:
 def brief(commit: Dict) -> Dict:
     return {
         "pr_notes": pr_notes(commit),
+        "issue_notes": issue_notes(commit),
         "sha": commit["sha"],
         "short": commit["sha"][:7],
         "date": commit["date"][:10],
@@ -283,6 +305,7 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
         story = [born["lead"]] if born.get("lead") else []
         story += [w for w in born["why"] if w not in story]
         story += [f"{n['text']} (PR #{n['pr']})" for n in born["pr_notes"] if n["kind"] in ("why", "lead")]
+        story += [f"Asked for in #{n['issue']}: {n['title']}" for n in born["issue_notes"]]
         intent.append({"source": "commit", "ref": born["short"], "date": born["date"],
                        "author": born["author"], "text": born["title"], "why": story[:2]})
     for event in timeline[1:]:
@@ -317,6 +340,17 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
             if belongs(warning):
                 pitfalls.append({"kind": "warning", "date": event["date"], "ref": event["short"], "text": warning})
         risky = event["kind"] in RISKY_KINDS or bool(event["reverted_by"])
+        for note in event["issue_notes"] if risky else []:
+            # The issue a fix closed is the problem report: what went wrong, as it was seen.
+            if ("issue", note["issue"]) in said:
+                continue
+            said.add(("issue", note["issue"]))
+            text = "Reported: " + note["title"]
+            if note["lead"] and note["lead"].lower() != note["title"].lower():
+                text += " — " + note["lead"]
+            pitfalls.append({"kind": "issue", "date": event["date"], "ref": f"#{note['issue']}", "text": text})
+            for extra in note["warn"] + [f"{d['author']}: {d['text']}" for d in note["discussion"]]:
+                pitfalls.append({"kind": "issue", "date": event["date"], "ref": f"#{note['issue']}", "text": extra})
         for note in event["pr_notes"]:
             # A pull request's warnings always matter; its reasons and review remarks only
             # for the changes that fixed or undid something.
@@ -409,8 +443,9 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
 
 
 def build(state: Dict, repo_name: str, head_date: str, ignore_patterns: Optional[List[str]] = None) -> Dict:
-    global _PRS
+    global _PRS, _ISSUES
     _PRS = state.get("prs", {})
+    _ISSUES = state.get("issues", {})
     ignored = make_ignore(DEFAULT_IGNORES + list(ignore_patterns or []))
     tracked = {p: r for p, r in state["files"].items() if not ignored(p)}
     live = {p: r for p, r in tracked.items() if not r["deleted"]}
@@ -454,6 +489,7 @@ def build(state: Dict, repo_name: str, head_date: str, ignore_patterns: Optional
             "kinds": dict(sorted(kinds.items())),
             "truncated": bool(state.get("truncated")),
             "prs_read": sum(1 for p in state.get("prs", {}).values() if p.get("state") != "missing"),
+            "issues_read": sum(1 for p in state.get("issues", {}).values() if p.get("state") != "missing"),
             "thresholds": {"fragile": FRAGILE, "caution": CAUTION},
         },
         "files": files,
@@ -507,6 +543,7 @@ def graph(report: Dict, state: Dict, max_files: int = 250, max_commits: int = 40
             "author": event["author"], "why": event["why"], "warn": event["warn"],
             "prs": event["prs"], "issues": event["issues"], "tickets": event["tickets"],
             "body": commit["body"][:600], "pr_notes": event["pr_notes"],
+            "issue_notes": [{"issue": n["issue"], "title": n["title"], "lead": n["lead"]} for n in event["issue_notes"]],
         })
         targets = set()
         for entry in commit["files"]:

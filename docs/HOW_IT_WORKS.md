@@ -81,8 +81,17 @@ paperwork. A number that turns out to be an issue is remembered as missing
 so it is not asked for again. Results live in the cache under `prs`, keyed by number, and survive
 a history rebuild.
 
-In the model, a pull request's reasons and review remarks attach only where the commit fixed or
-undid something, and each is shown once per file. A warning, whether from a commit message or its
+Issues come next. An issue is wanted if a commit message, or the title or body of a pull request
+that commit belongs to, names it after "fix", "close" or "resolve". Each is read once (plus its
+comments, if any), reduced to its title, opening sentence, one warning and up to two hazard
+remarks, and cached under `issues`. A number that turns out to be a pull request is skipped.
+
+In the model, the issue closed by a fix, security change or revert is listed among the file's
+pitfalls as "Reported: <title> — <opening sentence>", once per file. The issue closed by the commit
+that created a file joins "why it exists" as "Asked for in #N".
+
+A pull request's reasons and review remarks attach only where the commit fixed or undid
+something, and each is shown once per file. A warning, whether from a commit message or its
 pull request, attaches to a file only when the commit touched six files or fewer, the file carries
 a quarter or more of the changed lines, or the warning names the file.
 

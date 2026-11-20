@@ -37,6 +37,7 @@ def empty_state() -> Dict:
         "blame": {},     # path -> {key, blob, lines, commits, symbols, tripwires}
         "docs": {},      # path -> {hash, ...parsed doc}
         "prs": {},       # "12" -> pull-request summary (only filled by `dig --prs`)
+        "issues": {},    # "30" -> summary of an issue a commit or pull request closes
         "merges": 0,
     }
 

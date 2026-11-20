@@ -174,6 +174,41 @@ class PullRequestTest(unittest.TestCase):
         self.assertEqual([(d["author"], d["text"]) for d in got["discussion"]],
                          [("tomas", "Never retry a declined card, the gateway already answered.")])
 
+    def test_closing_refs(self):
+        self.assertEqual(prs.closing_refs("fix: retry\n\nFixes #30, #31 and #32. See #9."), [30, 31, 32])
+        self.assertEqual(prs.closing_refs("Closes: #7"), [7])
+        self.assertEqual(prs.closing_refs("mentions #5 only"), [])
+
+    def test_issue_closed_by_a_fix_becomes_the_problem_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "r")
+            os.makedirs(repo)
+            git(repo, "init", "-q", "-b", "main")
+            write(repo, "pay.py", "def charge():\n    return 1\n")
+            commit(repo, "Add charge")
+            write(repo, "pay.py", "def charge():\n    return 2\n")
+            commit(repo, "fix: double charge\n\nFixes #30", date="2021-02-01T00:00:00+00:00")
+            self.assertEqual(run_cli("dig", "--repo", repo)[0], 0)
+            state = cache.load(repo)
+            self.assertEqual(prs.wanted_issues(state), {30: "2021-02-01T00:00:00+00:00"})
+            calls = []
+
+            def fake(path):
+                calls.append(path)
+                if path.endswith("/issues/30"):
+                    return {"number": 30, "title": "Customers charged twice after a timeout", "state": "closed", "comments": 0,
+                            "user": {"login": "support"}, "body": "Fourteen customers were charged twice on 8 June.\n\n- [ ] triaged"}
+                raise AssertionError(path)
+
+            result = {"issues": 0, "issues_cached": 0, "failed": 0, "skipped": ""}
+            prs.update_issues(state, fake, "/repos/o/r", 10, result)
+            self.assertEqual((result["issues"], len(calls)), (1, 1))
+            prs.update_issues(state, fake, "/repos/o/r", 10, result)
+            self.assertEqual(len(calls), 1)  # cached
+            f = model.build(state, "r", "2021-02-01")["files"]["pay.py"]
+            reported = [p["text"] for p in f["pitfalls"] if p["kind"] == "issue"]
+            self.assertEqual(reported, ["Reported: Customers charged twice after a timeout — Fourteen customers were charged twice on 8 June."])
+
     def test_update_is_incremental_and_survives_failure(self):
         calls = []
 

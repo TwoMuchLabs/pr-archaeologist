@@ -27,6 +27,13 @@ def main(repo: str) -> int:
     print(f"  with a warning:          {len(with_warning)}")
     print(f"  with reviewer remarks:   {len(with_review)}  ({sum(len(p['discussion']) for p in with_review)} remarks kept)")
 
+    issues = [i for i in state.get("issues", {}).values() if i.get("state") != "missing"]
+    print(f"issues read:               {len(issues)}  (closed by a commit or pull request)")
+    for issue in sorted(issues, key=lambda i: -i["number"])[:12]:
+        print(f"  #{issue['number']} {issue['title'][:110]}")
+        if issue.get("lead"):
+            print(f"      {issue['lead'][:200]}")
+
     print("\nReviewer remarks kept (first 25):")
     shown = 0
     for p in sorted(with_review, key=lambda p: -p["number"]):
@@ -39,8 +46,8 @@ def main(repo: str) -> int:
     report = model.build(state, os.path.basename(os.path.abspath(repo)), "", state.get("config", {}).get("ignore", []))
     print("\nTop ranked files and what pull requests added to them:")
     for f in model.ranked(report)[:8]:
-        extra = [p for p in f["pitfalls"] if p["ref"].startswith("PR #")]
-        print(f"  #{f['rank']} {f['path']}  {f['level']} {f['score']}  ({len(extra)} from pull requests)")
+        extra = [p for p in f["pitfalls"] if p["ref"].startswith(("PR #", "#"))]
+        print(f"  #{f['rank']} {f['path']}  {f['level']} {f['score']}  ({len(extra)} from pull requests and issues)")
         for p in extra[:3]:
             print(f"      [{p['kind']}] {p['ref']}: {p['text'][:200]}")
     return 0

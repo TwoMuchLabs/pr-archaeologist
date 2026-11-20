@@ -1,12 +1,15 @@
-"""Optional: read pull-request descriptions and review discussion from GitHub.
+"""Optional: read pull requests, and the issues they close, from GitHub.
 
 Commit messages say what changed; the pull request usually says why, and the review
 says what nearly went wrong. This module fetches the pull requests that commits refer
 to (`(#12)`, `Merge pull request #12`) and keeps the sentences worth showing.
 
+An issue that a commit or its pull request closes ("Fixes #30") is the problem report:
+what was wrong, in the words of whoever hit it. Those are read too.
+
 It is the only part of pr-archaeologist that touches the network, it is off unless
 `dig --prs` is used, and it uses nothing beyond the standard library. Each pull request
-is fetched once and cached; open ones are re-read until they close.
+and issue is fetched once and cached; open ones are re-read until they close.
 """
 
 from __future__ import annotations
@@ -56,6 +59,20 @@ REMARK_CHATTER_RE = re.compile(
 # In a pull-request description, the author thinking aloud rather than describing the change.
 BODY_CHATTER_RE = re.compile(r"\b(let me know|unsure|not sure|i don't plan|i do not plan|feedback welcome|wip\b|todo\b)", re.I)
 MAX_DISCUSSION = 4
+CLOSES_RE = re.compile(
+    r"\b(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?)\b:?\s+((?:(?:,\s*|\s+and\s+)?#\d+)+)", re.I
+)
+
+
+def closing_refs(text: str) -> List[int]:
+    """Issue numbers a message says it closes: "Fixes #30", "closes #4, #5 and #6"."""
+    found: List[int] = []
+    for group in CLOSES_RE.findall(text or ""):
+        for number in re.findall(r"#(\d+)", group):
+            if int(number) not in found:
+                found.append(int(number))
+    return found
+
 
 FetchJson = Callable[[str], object]
 
@@ -147,7 +164,71 @@ def summarise(pr: Dict, comments: List[Dict]) -> Dict:
         "why": why,
         "warn": warn,
         "discussion": discussion,
+        "closes": closing_refs((pr.get("title") or "") + "\n" + (pr.get("body") or "")),
     }
+
+
+def summarise_issue(issue: Dict, comments: List[Dict]) -> Dict:
+    """Reduce one issue to the problem it reported and any hazard raised in its thread."""
+    base = summarise(issue, comments)
+    return {
+        "number": issue.get("number"),
+        "title": base["title"],
+        "author": base["author"],
+        "url": issue.get("html_url", ""),
+        "state": issue.get("state", ""),
+        "lead": base["lead"],
+        "warn": base["warn"][:1],
+        "discussion": base["discussion"][:2],
+    }
+
+
+def wanted_issues(state: Dict) -> Dict[int, str]:
+    """Issues named with a closing keyword by a commit or by a cached pull request."""
+    wanted: Dict[int, str] = {}
+    pr_numbers = set()
+    for commit in state["commits"].values():
+        pr_numbers.update(commit.get("prs", []))
+        refs = closing_refs(commit.get("subject", "") + "\n" + commit.get("body", ""))
+        for number in commit.get("prs", []):
+            refs += (state.get("prs", {}).get(str(number)) or {}).get("closes", [])
+        for number in refs:
+            if commit["date"] > wanted.get(number, ""):
+                wanted[number] = commit["date"]
+    return {n: d for n, d in wanted.items() if n not in pr_numbers}
+
+
+def update_issues(state: Dict, fetch: FetchJson, base: str, limit: int, result: Dict) -> None:
+    cached = state.setdefault("issues", {})
+    wanted = wanted_issues(state)
+    todo = [
+        n for n, _date in sorted(wanted.items(), key=lambda kv: kv[1], reverse=True)
+        if str(n) not in cached or cached[str(n)].get("state") == "open"
+    ][:limit]
+    result["issues_cached"] = len(wanted) - len(todo)
+    for number in todo:
+        try:
+            issue = fetch(f"{base}/issues/{number}")
+            if not isinstance(issue, dict):
+                continue
+            if issue.get("pull_request"):  # the number was a pull request after all
+                cached[str(number)] = {"number": number, "state": "missing"}
+                continue
+            comments = list(fetch(f"{base}/issues/{number}/comments?per_page=100") or []) if issue.get("comments") else []
+            cached[str(number)] = summarise_issue(issue, comments)
+            result["issues"] += 1
+        except urllib.error.HTTPError as exc:
+            if exc.code in (404, 410):
+                cached[str(number)] = {"number": number, "state": "missing"}
+                continue
+            result["failed"] += 1
+            if exc.code in (401, 403, 429):
+                result["skipped"] = f"GitHub answered {exc.code}; set GH_TOKEN or try again later"
+                break
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            result["failed"] += 1
+            result["skipped"] = f"could not reach GitHub ({exc.__class__.__name__})"
+            break
 
 
 def update(
@@ -168,18 +249,21 @@ def update(
     todo = [
         n for n, _date in sorted(wanted.items(), key=lambda kv: kv[1], reverse=True)
         if str(n) not in cached or cached[str(n)].get("state") == "open"
+        # summaries cached before issues were read do not say what they close: read once more
+        or (cached[str(n)].get("state") != "missing" and "closes" not in cached[str(n)])
     ][:limit]
-    result = {"fetched": 0, "cached": len(wanted) - len(todo), "failed": 0, "skipped": ""}
-    if not todo:
-        return result
+    result = {"fetched": 0, "cached": len(wanted) - len(todo), "failed": 0, "skipped": "",
+              "issues": 0, "issues_cached": 0}
     slug = remote_slug(repo)
     if slug is None and fetch_json is None:
-        result["skipped"] = "origin is not a GitHub repository"
+        if todo or wanted_issues(state):
+            result["skipped"] = "origin is not a GitHub repository"
         return result
     owner, name = slug or ("", "")
     fetch = fetch_json or http_fetcher(find_token())
     base = f"/repos/{owner}/{name}"
-    say(f"  reading {len(todo)} pull request(s) from GitHub")
+    if todo:
+        say(f"  reading {len(todo)} pull request(s) from GitHub")
     for number in todo:
         try:
             pr = fetch(f"{base}/pulls/{number}")
@@ -204,4 +288,6 @@ def update(
             result["failed"] += 1
             result["skipped"] = f"could not reach GitHub ({exc.__class__.__name__})"
             break
+    if not result["skipped"]:
+        update_issues(state, fetch, base, limit, result)
     return result

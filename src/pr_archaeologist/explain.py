@@ -74,7 +74,7 @@ def _advice(f: Dict) -> List[str]:
     strong = [c for c in f["coupled"] if c["strong"]]
     if strong:
         tips.append(f"Open {', '.join(c['path'] for c in strong[:3])} as well: they change together.")
-    fixes = [p for p in f["pitfalls"] if p["kind"] in ("fix", "security") and not p["ref"].startswith("PR #")]
+    fixes = [p for p in f["pitfalls"] if p["kind"] in ("fix", "security") and not p["ref"].startswith(("PR #", "#"))]
     if fixes:
         tips.append(f"Keep the behaviour from the last fix intact ({fixes[-1]['ref']}: {fixes[-1]['text'].split(' — ')[0]}).")
     if f["level"] == "stable" and not tips and not f.get("prose"):

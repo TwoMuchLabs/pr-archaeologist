@@ -63,7 +63,7 @@ ul.tl li.revert::before,ul.tl li.reverted::before{background:var(--revert)}
 ul.tl li.design::before{background:var(--design)} ul.tl li.perf::before{background:var(--perf)}
 ul.tl .d{font-family:var(--mono);font-size:11px;color:var(--muted)}
 .pit{border-left:3px solid var(--fragile);padding:5px 0 5px 10px;margin:0 0 8px;background:linear-gradient(90deg,color-mix(in srgb,var(--fragile) 8%,transparent),transparent)}
-.pit.coupling,.pit.comment,.pit.warning{border-color:var(--caution)} .pit.reverted{border-color:var(--revert)} .pit.decision,.pit.note{border-color:var(--doc)} .pit.review{border-color:var(--design)}
+.pit.coupling,.pit.comment,.pit.warning{border-color:var(--caution)} .pit.reverted{border-color:var(--revert)} .pit.decision,.pit.note{border-color:var(--doc)} .pit.review,.pit.issue{border-color:var(--design)}
 .pit .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--raise);padding:10px;border-radius:8px;font:12px/1.5 var(--mono);margin:8px 0}
 .quote{border-left:2px solid var(--line);padding-left:10px;color:var(--muted);margin:4px 0 8px}
@@ -426,6 +426,12 @@ function commitPanel(n){
     h += '<h3>From the pull request</h3>';
     n.pr_notes.forEach(function(x){
       h += '<div class="quote"><span class="mono">PR #' + esc(x.pr) + (x.kind === 'review' ? ' · ' + esc(x.author) : x.kind === 'warn' ? ' · warning' : '') + '</span><br>' + esc(x.text) + '</div>';
+    });
+  }
+  if (n.issue_notes && n.issue_notes.length){
+    h += '<h3>Problem it closed</h3>';
+    n.issue_notes.forEach(function(x){
+      h += '<div class="quote"><span class="mono">#' + esc(x.issue) + '</span> ' + esc(x.title) + (x.lead ? '<br>' + esc(x.lead) : '') + '</div>';
     });
   }
   if (n.body) h += '<h3>Message</h3><pre>' + esc(n.body) + '</pre>';
