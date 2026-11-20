@@ -16,9 +16,13 @@ What one snapshot covers:
     "already briefed"), `install-hook --print`, and `status`
   - `dig --full --no-blame --max-commits` with a small graph
 
-Not covered: `dig --prs` (it needs the network), `install-hook` writing to
-disk, coloured terminal output, and anything a repository in the sample does
-not contain. A clean result is evidence, not proof.
+  - the same model with invented pull requests and issues attached, so the
+    code that uses them runs offline: the report, the graph, the index, and
+    every file, function and directory explanation, plain and coloured
+
+Not covered: fetching from GitHub (`dig --prs` itself), `install-hook` writing
+to disk, and anything a repository in the sample does not contain. A clean
+result is evidence, not proof.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ import gzip
 import io
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -68,6 +73,92 @@ def sample_files(report):
     return [f["path"] for f in picked]
 
 
+REMARKS = (
+    "Never call {s} twice because it double counts.",
+    "The {s} module must stay in sync with the cache.",
+    "This was needed since the old path dropped events.",
+    "Careful: retries here are not idempotent.",
+    "Reported as a crash on empty input in {s}.",
+    "We chose a queue rather than a lock to avoid stalls.",
+)
+
+
+def attach_invented_prs(state, seed):
+    """Give the cached history pull requests and issues in the shape prs.py stores them."""
+    from pr_archaeologist import prs
+
+    rng = random.Random(seed)
+    stems = sorted({p.rsplit("/", 1)[-1].rsplit(".", 1)[0] for p in state["files"]}) or ["core"]
+    people = ["ana", "bo", "cy", "dependabot[bot]"]
+
+    def remark():
+        return rng.choice(REMARKS).format(s=rng.choice(stems))
+
+    def remarks(most):
+        return [remark() for _ in range(rng.randint(0, most))]
+
+    def thread(most):
+        return [{"author": rng.choice(people), "text": remark(), "own": rng.random() < 0.3} for _ in range(rng.randint(0, most))]
+
+    issue_numbers = set()
+    for index, sha in enumerate(sorted(state["commits"])):
+        commit = state["commits"][sha]
+        if not commit.get("prs") and index % 3 == 0:
+            commit["prs"] = [90000 + index]
+        issue_numbers.update(prs.closing_refs(commit["subject"] + "\n" + commit.get("body", "")))
+    state["prs"] = {}
+    for number in sorted({n for c in state["commits"].values() for n in c.get("prs", [])}):
+        if rng.random() < 0.1:
+            state["prs"][str(number)] = {"number": number, "state": "missing"}
+            continue
+        closes = [number + 500000] if rng.random() < 0.5 else []
+        issue_numbers.update(closes)
+        state["prs"][str(number)] = {
+            "number": number, "title": remark(), "author": rng.choice(people), "url": "", "state": "merged",
+            "lead": remark() if rng.random() < 0.7 else None, "why": remarks(3), "warn": remarks(2),
+            "discussion": thread(2), "closes": closes,
+        }
+    state["issues"] = {}
+    for number in sorted(issue_numbers):
+        title = remark()
+        lead = rng.choice([None, title, remark()])
+        state["issues"][str(number)] = {
+            "number": number, "title": title, "author": rng.choice(people), "url": "",
+            "state": rng.choice(["closed", "closed", "open", "missing"]), "lead": lead, "warn": remarks(1), "discussion": thread(2),
+        }
+
+
+def model_snapshot(repo, out):
+    """Everything the model and the renderers produce, with invented pull requests attached."""
+    from pr_archaeologist import cache, cli, explain, hook, model, render_html, render_md
+
+    state = cache.load(repo)
+    attach_invented_prs(state, seed=os.path.basename(repo))
+    report = cli._report(repo, state)
+    payload = model.graph(report, state, max_files=60)
+
+    def dump(name, text):
+        with open(os.path.join(out, "invented-prs-" + name), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    dump("report.json", json.dumps(report, indent=1, sort_keys=True, ensure_ascii=False))
+    dump("graph.json", json.dumps(payload, indent=1, sort_keys=True, ensure_ascii=False))
+    dump("index.md", render_md.render(report))
+    dump("graph.html", render_html.render(payload))
+    files = [report["files"][p] for p in sorted(report["files"])][:600]
+    for color in (False, True):
+        for show_all in (False, True):
+            dump(f"explain-color{int(color)}-all{int(show_all)}.txt",
+                 "\n=====\n".join(explain.render_file(f, color=color, show_all=show_all) for f in files))
+        functions = [explain.render_function(f, s["name"], color=color) or "(none)" for f in files for s in f["symbols"][:3]]
+        dump(f"functions-color{int(color)}.txt", "\n=====\n".join(functions))
+        directories = sorted({p.split("/")[0] for p in report["files"] if "/" in p})
+        listings = [explain.render_dir(d, [f for f in files if f["path"].startswith(d + "/")], color=color) for d in directories]
+        dump(f"directories-color{int(color)}.txt", "\n=====\n".join(listings))
+    briefs = [f"{f['path']} {[hook.worth_saying(f, lvl) for lvl in ('any', 'caution', 'fragile')]}\n{hook.brief(f)}" for f in files]
+    dump("hook-briefs.txt", "\n=====\n".join(briefs))
+
+
 def snapshot(repo, out):
     os.makedirs(out, exist_ok=True)
     counter = [0]
@@ -101,6 +192,7 @@ def snapshot(repo, out):
 
     with open(os.path.join(repo, "model.json"), encoding="utf-8") as fh:
         report = json.load(fh)
+    model_snapshot(repo, out)
     os.chdir(repo)
     paths = sample_files(report)
     for path in paths:
