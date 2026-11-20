@@ -584,25 +584,8 @@ def ranked(report: Dict, live_only: bool = True) -> List[Dict]:
     return sorted(files, key=lambda f: (-f["score"], -f["commits"], f["path"]))
 
 
-def graph(report: Dict, state: Dict, max_files: int = 250, max_commits: int = 400) -> Dict:
-    """Node/edge payload for the HTML graph: files, landmark commits, decision records."""
-    # Decision records get their own diamond nodes, and empty files (bare __init__.py) carry
-    # no story, so neither is drawn as a file circle.
-    chosen = [
-        f for f in ranked(report)
-        if f["path"] not in report["docs"] and f["lines"] != 0
-    ][:max_files]
-    chosen_paths = {f["path"] for f in chosen}
-    nodes, edges = [], []
-
-    for f in chosen:
-        nodes.append({
-            "id": "f:" + f["path"], "type": "file", "label": f["path"].rsplit("/", 1)[-1],
-            "path": f["path"], "date": f["first"], "score": f["score"], "level": f["level"],
-            "size": f["commits"],
-        })
-
-    # Landmark commits: the ones a newcomer would want explained.
+def _landmark_events(chosen: List[Dict], max_commits: int) -> List[Dict]:
+    """Landmark commits: the ones a newcomer would want explained. Risky ones are kept first."""
     landmark: Dict[str, Dict] = {}
     for f in chosen:
         for i, event in enumerate(f["timeline"]):
@@ -614,29 +597,35 @@ def graph(report: Dict, state: Dict, max_files: int = 250, max_commits: int = 40
     )
     risky = [e for e in keep if e["kind"] in RISKY_KINDS or e["reverted_by"]]
     rest = [e for e in keep if not (e["kind"] in RISKY_KINDS or e["reverted_by"])]
-    keep = (risky[-max_commits:] + rest[-max(0, max_commits - len(risky)):])[:max_commits]
-    keep_shas = {e["sha"] for e in keep}
-    by_previous = {old: p for p, rec in state["files"].items() for old in rec["previous"]}
-    for event in sorted(keep, key=lambda e: e["date"]):
-        commit = state["commits"][event["sha"]]
-        nodes.append({
-            "id": "c:" + event["sha"], "type": "commit", "label": event["short"], "date": event["date"],
-            "kind": "reverted" if event["reverted_by"] else event["kind"], "title": event["title"],
-            "author": event["author"], "why": event["why"], "warn": event["warn"],
-            "prs": event["prs"], "issues": event["issues"], "tickets": event["tickets"],
-            "body": commit["body"][:600], "pr_notes": event["pr_notes"],
-            "issue_notes": [{"issue": n["issue"], "title": n["title"], "lead": n["lead"]} for n in event["issue_notes"]],
-        })
-        targets = set()
-        for entry in commit["files"]:
-            target = entry[0] if entry[0] in chosen_paths else by_previous.get(entry[0])
-            if target in chosen_paths:
-                targets.add(target)
-        for target in sorted(targets):
-            edges.append({"s": "c:" + event["sha"], "t": "f:" + target, "type": "touch"})
-        if commit.get("reverts") and commit["reverts"] in keep_shas:
-            edges.append({"s": "c:" + event["sha"], "t": "c:" + commit["reverts"], "type": "revert"})
+    return (risky[-max_commits:] + rest[-max(0, max_commits - len(risky)):])[:max_commits]
 
+
+def _commit_node(event: Dict, commit: Dict) -> Dict:
+    return {
+        "id": "c:" + event["sha"], "type": "commit", "label": event["short"], "date": event["date"],
+        "kind": "reverted" if event["reverted_by"] else event["kind"], "title": event["title"],
+        "author": event["author"], "why": event["why"], "warn": event["warn"],
+        "prs": event["prs"], "issues": event["issues"], "tickets": event["tickets"],
+        "body": commit["body"][:600], "pr_notes": event["pr_notes"],
+        "issue_notes": [{"issue": n["issue"], "title": n["title"], "lead": n["lead"]} for n in event["issue_notes"]],
+    }
+
+
+def _commit_edges(event: Dict, commit: Dict, chosen_paths: set, by_previous: Dict[str, str], keep_shas: set) -> List[Dict]:
+    """The drawn files a commit touched (under their current names), and the commit it reverts."""
+    targets = set()
+    for entry in commit["files"]:
+        target = entry[0] if entry[0] in chosen_paths else by_previous.get(entry[0])
+        if target in chosen_paths:
+            targets.add(target)
+    edges = [{"s": "c:" + event["sha"], "t": "f:" + target, "type": "touch"} for target in sorted(targets)]
+    if commit.get("reverts") and commit["reverts"] in keep_shas:
+        edges.append({"s": "c:" + event["sha"], "t": "c:" + commit["reverts"], "type": "revert"})
+    return edges
+
+
+def _doc_nodes(report: Dict, chosen_paths: set) -> Tuple[List[Dict], List[Dict]]:
+    nodes, edges = [], []
     for path, doc in report["docs"].items():
         targets = [t for t in doc["files"] if t in chosen_paths]
         if not targets and doc["kind"] != "adr":
@@ -647,9 +636,12 @@ def graph(report: Dict, state: Dict, max_files: int = 250, max_commits: int = 40
             "date": doc["date"] or "", "context": doc["context"], "decision": doc["decision"],
             "consequences": doc["consequences"],
         })
-        for target in targets:
-            edges.append({"s": "d:" + path, "t": "f:" + target, "type": "explains"})
+        edges += [{"s": "d:" + path, "t": "f:" + target, "type": "explains"} for target in targets]
+    return nodes, edges
 
+
+def _coupling_edges(chosen: List[Dict], chosen_paths: set) -> List[Dict]:
+    edges = []
     seen_pairs = set()
     for f in chosen:
         for link in f["coupled"]:
@@ -660,24 +652,55 @@ def graph(report: Dict, state: Dict, max_files: int = 250, max_commits: int = 40
                 continue
             seen_pairs.add(pair)
             edges.append({"s": "f:" + pair[0], "t": "f:" + pair[1], "type": "coupled", "w": link["count"]})
+    return edges
 
-    details = {}
-    for f in chosen:
-        details[f["path"]] = {
-            "path": f["path"], "score": f["score"], "level": f["level"], "reasons": f["reasons"],
-            "rank": f["rank"], "ranked_of": f["ranked_of"],
-            "commits": f["commits"], "fixes": f["fixes"], "reverts": f["reverts"],
-            "authors": f["authors"], "first": f["first"], "last": f["last"], "previous": f["previous"],
-            "intent": f["intent"], "pitfalls": f["pitfalls"][-14:], "coupled": f["coupled"],
-            "docs": [{k: d[k] for k in ("path", "label", "title", "status")} for d in f["docs"]],
-            "timeline": [
-                {k: e[k] for k in ("short", "date", "kind", "title", "author", "note", "reverted_by")}
-                for e in f["timeline"][-40:]
-            ],
-            "symbols": [
-                {"name": s["name"], "start": s["start"], "end": s["end"], "origin": s["origin"]["title"],
-                 "origin_date": s["origin"]["date"], "fixes": s["fixes"][-4:]}
-                for s in [x for x in f["symbols"] if x["fixes"] and not x["container"]][:25]
-            ],
-        }
-    return {"meta": report["meta"], "nodes": nodes, "edges": edges, "files": details}
+
+def _file_detail(f: Dict) -> Dict:
+    """What the graph's side panel shows for one file."""
+    return {
+        "path": f["path"], "score": f["score"], "level": f["level"], "reasons": f["reasons"],
+        "rank": f["rank"], "ranked_of": f["ranked_of"],
+        "commits": f["commits"], "fixes": f["fixes"], "reverts": f["reverts"],
+        "authors": f["authors"], "first": f["first"], "last": f["last"], "previous": f["previous"],
+        "intent": f["intent"], "pitfalls": f["pitfalls"][-14:], "coupled": f["coupled"],
+        "docs": [{k: d[k] for k in ("path", "label", "title", "status")} for d in f["docs"]],
+        "timeline": [
+            {k: e[k] for k in ("short", "date", "kind", "title", "author", "note", "reverted_by")}
+            for e in f["timeline"][-40:]
+        ],
+        "symbols": [
+            {"name": s["name"], "start": s["start"], "end": s["end"], "origin": s["origin"]["title"],
+             "origin_date": s["origin"]["date"], "fixes": s["fixes"][-4:]}
+            for s in [x for x in f["symbols"] if x["fixes"] and not x["container"]][:25]
+        ],
+    }
+
+
+def graph(report: Dict, state: Dict, max_files: int = 250, max_commits: int = 400) -> Dict:
+    """Node/edge payload for the HTML graph: files, landmark commits, decision records."""
+    # Decision records get their own diamond nodes, and empty files (bare __init__.py) carry
+    # no story, so neither is drawn as a file circle.
+    chosen = [
+        f for f in ranked(report)
+        if f["path"] not in report["docs"] and f["lines"] != 0
+    ][:max_files]
+    chosen_paths = {f["path"] for f in chosen}
+    nodes = [{
+        "id": "f:" + f["path"], "type": "file", "label": f["path"].rsplit("/", 1)[-1],
+        "path": f["path"], "date": f["first"], "score": f["score"], "level": f["level"],
+        "size": f["commits"],
+    } for f in chosen]
+    edges: List[Dict] = []
+
+    keep = _landmark_events(chosen, max_commits)
+    keep_shas = {e["sha"] for e in keep}
+    by_previous = {old: p for p, rec in state["files"].items() for old in rec["previous"]}
+    for event in sorted(keep, key=lambda e: e["date"]):
+        commit = state["commits"][event["sha"]]
+        nodes.append(_commit_node(event, commit))
+        edges += _commit_edges(event, commit, chosen_paths, by_previous, keep_shas)
+
+    doc_nodes, doc_edges = _doc_nodes(report, chosen_paths)
+    nodes += doc_nodes
+    edges += doc_edges + _coupling_edges(chosen, chosen_paths)
+    return {"meta": report["meta"], "nodes": nodes, "edges": edges, "files": {f["path"]: _file_detail(f) for f in chosen}}
