@@ -14,7 +14,8 @@ What one snapshot covers:
     directories, and for a path that does not exist
   - `hook --plain` at each level, the Claude Code hook event (twice, to cover
     "already briefed"), `install-hook --print`, and `status`
-  - `dig --full --no-blame --max-commits` with a small graph
+  - `dig` again with nothing new, `dig --full --no-blame --max-commits` with a
+    small graph, and `dig` after the last commit has been rewritten
 
   - the same model with invented pull requests and issues attached, so the
     code that uses them runs offline: the report, the graph, the index, and
@@ -197,7 +198,23 @@ def snapshot(repo, out, quick=False):
     with open(os.path.join(repo, "model.json"), encoding="utf-8") as fh:
         report = json.load(fh)
     model_snapshot(repo, out)
+
+    def closing_runs():
+        """The remaining ways history is read: nothing new, truncated, and rewritten."""
+        save("dig-noop", run_cli(["dig", "--repo", repo, "--json", "model.json"]))
+        small = ["dig", "--repo", repo, "--full", "--no-blame", "--max-commits", "300", "--max-graph-files", "40", "--json", "model.json"]
+        save("dig-small", run_cli(small))
+        keep_outputs("small")
+        # Rewrite the last commit (fixed identity and dates, so both runs get the same id).
+        fixed = {"GIT_AUTHOR_NAME": "check", "GIT_AUTHOR_EMAIL": "check@example.com", "GIT_AUTHOR_DATE": "2026-01-02T03:04:05+00:00",
+                 "GIT_COMMITTER_NAME": "check", "GIT_COMMITTER_EMAIL": "check@example.com", "GIT_COMMITTER_DATE": "2026-01-02T03:04:05+00:00"}
+        subprocess.run(["git", "-C", repo, "commit", "-q", "--amend", "--allow-empty", "--no-verify", "-m", "fix: rewritten for the behaviour check"],
+                       env=dict(os.environ, **fixed), check=True)
+        save("dig-rewritten", run_cli(["dig", "--repo", repo, "--json", "model.json"]))
+        keep_outputs("rewritten")
+
     if quick:
+        closing_runs()
         return counter[0]
     os.chdir(repo)
     paths = sample_files(report)
@@ -221,8 +238,7 @@ def snapshot(repo, out, quick=False):
     save("hook-junk", run_cli(["hook"], stdin="not json"))
     save("install-hook-print", run_cli(["install-hook", "--print", "--min-level", "fragile"]))
     save("status", run_cli(["status"]))
-    save("dig-small", run_cli(["dig", "--full", "--no-blame", "--max-commits", "300", "--max-graph-files", "40", "--json", "model.json"]))
-    keep_outputs("small")
+    closing_runs()
     return counter[0]
 
 
