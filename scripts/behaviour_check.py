@@ -237,8 +237,9 @@ def snapshot(repo, out, quick=False):
         for level in ("any", "caution", "fragile"):
             save(f"hook-{level} {path}", run_cli(["hook", "--plain", path, "--min-level", level]))
         for symbol in report["files"][path].get("symbols", [])[:2]:
-            for flag in ([], ["--json"]):
-                save(f"function {path} {symbol['name']}", run_cli(["explain", path, "--no-refresh", "-f", symbol["name"], *flag]))
+            for name in dict.fromkeys((symbol["name"], symbol["name"].rsplit(".", 1)[-1])):  # full, then bare
+                for flag in ([], ["--json"]):
+                    save(f"function {path} {name}", run_cli(["explain", path, "--no-refresh", "-f", name, *flag]))
     for directory in sorted({p.split("/")[0] for p in report["files"] if "/" in p}) + ["."]:
         save(f"explain-dir {directory}", run_cli(["explain", directory, "--no-refresh"]))
         save(f"explain-dir-json {directory}", run_cli(["explain", directory, "--no-refresh", "--json"]))
@@ -247,6 +248,13 @@ def snapshot(repo, out, quick=False):
     for path in paths[:6] * 2:  # the second pass must stay silent
         event = json.dumps({"hook_event_name": "PreToolUse", "session_id": "check", "cwd": repo, "tool_input": {"file_path": path}})
         save(f"hook-event {path}", run_cli(["hook", "--min-level", "any"], stdin=event))
+    # An agent may run from anywhere: the event's own cwd, or an absolute path, must find the repo.
+    os.chdir(os.path.dirname(repo))
+    for path in paths[:3]:
+        event = json.dumps({"hook_event_name": "PreToolUse", "session_id": "elsewhere", "cwd": repo, "tool_input": {"file_path": path}})
+        save(f"hook-event-from-elsewhere {path}", run_cli(["hook", "--min-level", "any"], stdin=event))
+        save(f"hook-absolute-from-elsewhere {path}", run_cli(["hook", "--plain", os.path.join(repo, path), "--min-level", "any"]))
+    os.chdir(repo)
     save("hook-junk", run_cli(["hook"], stdin="not json"))
     save("install-hook-print", run_cli(["install-hook", "--print", "--min-level", "fragile"]))
     save("status", run_cli(["status"]))
