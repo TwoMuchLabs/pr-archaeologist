@@ -440,41 +440,58 @@ def _symbol_report(sym: Dict, all_symbols: List[Dict], commits_all: Dict[str, Di
     }
 
 
+def _tally(timeline: List[Dict]) -> Dict[str, List[Dict]]:
+    """The events that count against a file, by what they were."""
+    counted = [e for e in timeline if not e["incidental"]]
+    return {
+        "counted": counted,
+        "fixes": [e for e in counted if e["kind"] == "fix"],
+        "security": [e for e in counted if e["kind"] == "security"],
+        "reverts": [e for e in counted if e["kind"] == "revert"],
+        "hotfixes": [e for e in counted if "hotfix" in e["tags"]],
+    }
+
+
+def _file_score(tally: Dict[str, List[Dict]], commits: int, authors: int, tripwires: List, strong: List, prose: bool) -> int:
+    fixes, reverts, security, hotfixes = (tally[k] for k in ("fixes", "reverts", "security", "hotfixes"))
+    score = _score(len(fixes), len(reverts), len(security), len(hotfixes), commits, authors, len(tripwires), len(strong))
+    if not (fixes or reverts or security or hotfixes or tripwires):
+        score = min(score, CAUTION - 1)  # churn and coupling alone never make a file "caution"
+    return 0 if prose else score  # documentation is not scored; its history is still shown
+
+
+def _pitfalls(path: str, counted: List[Dict], tripwires: List[Dict], strong: List[Dict], file_docs: List[Dict],
+              commits_all: Dict[str, Dict]) -> List[Dict]:
+    """Everything a future editor should know went wrong or is easy to get wrong."""
+    stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+    said: set = set()  # a pull request with five commits should say its piece once per file
+    pitfalls = [p for event in counted for p in _event_pitfalls(event, stem, commits_all, said)]
+    return pitfalls + _standing_pitfalls(tripwires, strong, file_docs, commits_all)
+
+
+def _symbols(blame: Dict, hint_fixes: Dict[str, List[Dict]], commits_all: Dict[str, Dict]) -> List[Dict]:
+    all_symbols = blame.get("symbols", [])
+    reports = (_symbol_report(sym, all_symbols, commits_all, hint_fixes) for sym in all_symbols)
+    return [report for report in reports if report]
+
+
 def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], bool],
                  file_docs: List[Dict]) -> Dict:
     commits_all = state["commits"]
     names = {path, *rec["previous"]}
     commits = _ordered_commits(rec, commits_all)
     timeline, churn = _timeline(commits, names)
-
-    counted = [e for e in timeline if not e["incidental"]]
-    fixes = [e for e in counted if e["kind"] == "fix"]
-    security = [e for e in counted if e["kind"] == "security"]
-    reverts = [e for e in counted if e["kind"] == "revert"]
-    hotfixes = [e for e in counted if "hotfix" in e["tags"]]
+    tally = _tally(timeline)
+    fixes, reverts, security, hotfixes = (tally[k] for k in ("fixes", "reverts", "security", "hotfixes"))
     authors = Counter(e["author"] for e in timeline)
     blame = state["blame"].get(path, {})
     tripwires = blame.get("tripwires", [])
     coupled = _coupling(path, state, ignored, len(commits))
     strong = [c for c in coupled if c["strong"]]
     prose = is_prose(path)
-
-    score = _score(len(fixes), len(reverts), len(security), len(hotfixes), len(commits),
-                   len(authors), len(tripwires), len(strong))
-    if not (fixes or reverts or security or hotfixes or tripwires):
-        score = min(score, CAUTION - 1)  # churn and coupling alone never make a file "caution"
-    if prose:
-        score = 0  # documentation is not scored; its history is still shown
-
-    # Pitfalls: everything a future editor should know went wrong or is easy to get wrong.
-    stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
-    said: set = set()  # a pull request with five commits should say its piece once per file
-    pitfalls = [p for event in counted for p in _event_pitfalls(event, stem, commits_all, said)]
-    pitfalls += _standing_pitfalls(tripwires, strong, file_docs, commits_all)
-
-    hint_fixes = _fixes_by_symbol(timeline, commits, names)
-    all_symbols = blame.get("symbols", [])
-    symbols = [s for s in (_symbol_report(sym, all_symbols, commits_all, hint_fixes) for sym in all_symbols) if s]
+    score = _file_score(tally, len(commits), len(authors), tripwires, strong, prose)
+    pitfalls = _pitfalls(path, tally["counted"], tripwires, strong, file_docs, commits_all)
+    symbols = _symbols(blame, _fixes_by_symbol(timeline, commits, names), commits_all)
 
     deleted = commits_all.get(rec["deleted"] or "")
     return {
