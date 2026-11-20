@@ -524,17 +524,10 @@ def _file_report(path: str, rec: Dict, state: Dict, ignored: Callable[[str], boo
     }
 
 
-def build(state: Dict, repo_name: str, head_date: str, ignore_patterns: Optional[List[str]] = None) -> Dict:
-    global _PRS, _ISSUES
-    _PRS = state.get("prs", {})
-    _ISSUES = state.get("issues", {})
-    ignored = make_ignore(DEFAULT_IGNORES + list(ignore_patterns or []))
-    tracked = {p: r for p, r in state["files"].items() if not ignored(p)}
-    live = {p: r for p, r in tracked.items() if not r["deleted"]}
-
-    links = _link_docs(state, live)
+def _doc_refs(state: Dict, links: Dict[str, List[str]]) -> Tuple[Dict[str, Dict], Dict[str, List[Dict]]]:
+    """Documents worth showing, and for each file the documents that explain it."""
+    docs: Dict[str, Dict] = {}
     docs_for_file: Dict[str, List[Dict]] = {}
-    docs = {}
     for doc_path, doc in sorted(state["docs"].items()):
         ref = _doc_ref(doc_path, doc)
         ref["files"] = sorted(links.get(doc_path, []))
@@ -543,40 +536,58 @@ def build(state: Dict, repo_name: str, head_date: str, ignore_patterns: Optional
         docs[doc_path] = ref
         for target in ref["files"]:
             docs_for_file.setdefault(target, []).append({k: v for k, v in ref.items() if k != "files"})
+    return docs, docs_for_file
 
-    files = {
-        path: _file_report(path, rec, state, ignored, docs_for_file.get(path, []))
-        for path, rec in sorted(tracked.items())
-    }
-    # Rank scored files against each other: on an old repository the order says more than
-    # the label does.
+
+def _rank(files: Dict[str, Dict]) -> None:
+    """Rank scored files against each other: on an old repository the order says more than
+    the label does."""
     scored = sorted(
         (f for f in files.values() if f["status"] == "live" and not f["prose"]),
         key=lambda f: (-f["score"], -f["commits"], f["path"]),
     )
     for position, f in enumerate(scored, start=1):
         f["rank"], f["ranked_of"] = position, len(scored)
+
+
+def _read_count(summaries: Dict[str, Dict]) -> int:
+    return sum(1 for item in summaries.values() if item.get("state") != "missing")
+
+
+def _meta(state: Dict, repo_name: str, head_date: str, files: Dict[str, Dict]) -> Dict:
     kinds = Counter(c["kind"] for c in state["commits"].values())
     dates = sorted(c["date"] for c in state["commits"].values())
     return {
-        "meta": {
-            "repo": repo_name,
-            "head": state.get("last_commit") or state["head"],
-            "head_date": head_date[:10],
-            "commits": len(state["commits"]),
-            "merges": state.get("merges", 0),
-            "first_commit": dates[0][:10] if dates else "",
-            "files_live": sum(1 for f in files.values() if f["status"] == "live"),
-            "files_deleted": sum(1 for f in files.values() if f["status"] == "deleted"),
-            "kinds": dict(sorted(kinds.items())),
-            "truncated": bool(state.get("truncated")),
-            "prs_read": sum(1 for p in state.get("prs", {}).values() if p.get("state") != "missing"),
-            "issues_read": sum(1 for p in state.get("issues", {}).values() if p.get("state") != "missing"),
-            "thresholds": {"fragile": FRAGILE, "caution": CAUTION},
-        },
-        "files": files,
-        "docs": docs,
+        "repo": repo_name,
+        "head": state.get("last_commit") or state["head"],
+        "head_date": head_date[:10],
+        "commits": len(state["commits"]),
+        "merges": state.get("merges", 0),
+        "first_commit": dates[0][:10] if dates else "",
+        "files_live": sum(1 for f in files.values() if f["status"] == "live"),
+        "files_deleted": sum(1 for f in files.values() if f["status"] == "deleted"),
+        "kinds": dict(sorted(kinds.items())),
+        "truncated": bool(state.get("truncated")),
+        "prs_read": _read_count(state.get("prs", {})),
+        "issues_read": _read_count(state.get("issues", {})),
+        "thresholds": {"fragile": FRAGILE, "caution": CAUTION},
     }
+
+
+def build(state: Dict, repo_name: str, head_date: str, ignore_patterns: Optional[List[str]] = None) -> Dict:
+    global _PRS, _ISSUES
+    _PRS = state.get("prs", {})
+    _ISSUES = state.get("issues", {})
+    ignored = make_ignore(DEFAULT_IGNORES + list(ignore_patterns or []))
+    tracked = {p: r for p, r in state["files"].items() if not ignored(p)}
+    live = {p: r for p, r in tracked.items() if not r["deleted"]}
+    docs, docs_for_file = _doc_refs(state, _link_docs(state, live))
+    files = {
+        path: _file_report(path, rec, state, ignored, docs_for_file.get(path, []))
+        for path, rec in sorted(tracked.items())
+    }
+    _rank(files)
+    return {"meta": _meta(state, repo_name, head_date, files), "files": files, "docs": docs}
 
 
 def ranked(report: Dict, live_only: bool = True) -> List[Dict]:
