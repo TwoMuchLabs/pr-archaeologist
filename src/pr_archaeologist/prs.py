@@ -247,18 +247,11 @@ def update_issues(state: Dict, fetch: FetchJson, base: str, limit: int, result: 
             comments = list(fetch(f"{base}/issues/{number}/comments?per_page=100") or []) if issue.get("comments") else []
             cached[str(number)] = summarise_issue(issue, comments)
             result["issues"] += 1
-        except urllib.error.HTTPError as exc:
-            if exc.code in (404, 410):
-                cached[str(number)] = {"number": number, "state": "missing"}
-                continue
-            result["failed"] += 1
-            if exc.code in (401, 403, 429):
-                result["skipped"] = f"GitHub answered {exc.code}; set GH_TOKEN or try again later"
-                break
         except (urllib.error.URLError, OSError, ValueError) as exc:
-            result["failed"] += 1
-            result["skipped"] = f"could not reach GitHub ({exc.__class__.__name__})"
-            break
+            if isinstance(exc, urllib.error.HTTPError) and exc.code in (404, 410):
+                cached[str(number)] = {"number": number, "state": "missing"}
+            elif _stop_after(exc, result):
+                break
 
 
 def _wanted_prs(state: Dict) -> Dict[int, str]:
