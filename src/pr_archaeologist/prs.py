@@ -139,21 +139,31 @@ def _pick(body: str) -> Tuple[List[str], List[str], Optional[str]]:
     return why, warn, lead
 
 
-def summarise(pr: Dict, comments: List[Dict]) -> Dict:
-    """Reduce one pull request and its discussion to what the outputs show."""
-    why, warn, lead = _pick(pr.get("body") or "")
-    author = (pr.get("user") or {}).get("login", "")
-    discussion = []
+def _remarks(body: str) -> List[str]:
+    """Sentences of one comment that state a hazard or a rule about the code."""
+    return [
+        sent for sent in _sentences(clean_body(body))
+        if not (PROCESS_RE.search(sent) or REMARK_CHATTER_RE.search(sent) or len(sent) < 40)
+        and REMARK_SIGNAL_RE.search(sent)
+    ]
+
+
+def _discussion(comments: List[Dict], author: str) -> List[Dict]:
+    """The first few such remarks from people (not bots), in the order they were made."""
+    discussion: List[Dict] = []
     for item in comments:
         who = (item.get("user") or {}).get("login", "")
         kind = (item.get("user") or {}).get("type", "")
         if not who or kind == "Bot" or BOT_RE.search(who):
             continue
-        for sent in _sentences(clean_body(item.get("body") or "")):
-            if PROCESS_RE.search(sent) or REMARK_CHATTER_RE.search(sent) or len(sent) < 40:
-                continue
-            if REMARK_SIGNAL_RE.search(sent) and len(discussion) < MAX_DISCUSSION:
-                discussion.append({"author": who, "text": sent, "own": who == author})
+        discussion += [{"author": who, "text": sent, "own": who == author} for sent in _remarks(item.get("body") or "")]
+    return discussion[:MAX_DISCUSSION]
+
+
+def summarise(pr: Dict, comments: List[Dict]) -> Dict:
+    """Reduce one pull request and its discussion to what the outputs show."""
+    why, warn, lead = _pick(pr.get("body") or "")
+    author = (pr.get("user") or {}).get("login", "")
     return {
         "number": pr.get("number"),
         "title": (pr.get("title") or "").strip(),
@@ -163,7 +173,7 @@ def summarise(pr: Dict, comments: List[Dict]) -> Dict:
         "lead": lead,
         "why": why,
         "warn": warn,
-        "discussion": discussion,
+        "discussion": _discussion(comments, author),
         "closes": closing_refs((pr.get("title") or "") + "\n" + (pr.get("body") or "")),
     }
 
