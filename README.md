@@ -143,6 +143,11 @@ A warning from a commit or its pull request is attached to a file only when the 
 the file carries a quarter or more of the change, or the warning names the file. Otherwise one
 sweeping pull request would repeat its warnings on every file it touched.
 
+Issue reading was tried on Flask as well: 174 issues read alongside 200 pull requests in about
+four minutes, adding problem reports such as "save_session does not preserve HttpOnly when
+deleting the cookie" to the files those fixes changed. Titles are reliably useful; opening lines
+less so, so greetings, bare links and questions are skipped.
+
 To try it on any public repository without installing anything, run the **Field test** workflow
 from this repository's Actions tab ([`field-test.yml`](.github/workflows/field-test.yml)): give it
 `owner/name` and it prints what the pull requests added and uploads the index and graph.

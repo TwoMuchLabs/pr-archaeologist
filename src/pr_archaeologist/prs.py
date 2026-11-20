@@ -168,9 +168,29 @@ def summarise(pr: Dict, comments: List[Dict]) -> Dict:
     }
 
 
+GREETING_RE = re.compile(
+    r"^\s*(hi|hello|hey|thanks|thank you|first of all|great (work|project|library)|love this|"
+    r"sorry|apologies|i'm (new|not sure)|not sure if)\b|\b(seems very well done|thanks for (all )?(your|the))\b",
+    re.I,
+)
+MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+
+
+def issue_lead(body: str) -> Optional[str]:
+    """First sentence of an issue that says something about the problem, or None."""
+    for sent in _sentences(clean_body(body)):
+        sent = MD_LINK_RE.sub(r"\1", sent).strip()
+        bare = re.sub(r"https?://\S+", "", sent).strip(" .:-")
+        if len(bare) < 25 or sent.endswith("?") or GREETING_RE.search(sent) or PROCESS_RE.search(sent):
+            continue
+        return sent
+    return None
+
+
 def summarise_issue(issue: Dict, comments: List[Dict]) -> Dict:
     """Reduce one issue to the problem it reported and any hazard raised in its thread."""
     base = summarise(issue, comments)
+    base["lead"] = issue_lead(issue.get("body") or "")
     return {
         "number": issue.get("number"),
         "title": base["title"],

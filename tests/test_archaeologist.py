@@ -209,6 +209,13 @@ class PullRequestTest(unittest.TestCase):
             reported = [p["text"] for p in f["pitfalls"] if p["kind"] == "issue"]
             self.assertEqual(reported, ["Reported: Customers charged twice after a timeout — Fourteen customers were charged twice on 8 June."])
 
+    def test_issue_lead_skips_pleasantries(self):
+        body = ("Hi, this library seems very well done.\n\nIs this a problem?\n\n"
+                "https://example.com/some/long/link/to/the/source/file.py#L104\n\n"
+                "When the session ends up empty, the cookie is deleted without the HttpOnly flag.")
+        self.assertEqual(prs.issue_lead(body), "When the session ends up empty, the cookie is deleted without the HttpOnly flag.")
+        self.assertIsNone(prs.issue_lead("Investigate.\n\nHello, and thanks for all your work"))
+
     def test_update_is_incremental_and_survives_failure(self):
         calls = []
 
