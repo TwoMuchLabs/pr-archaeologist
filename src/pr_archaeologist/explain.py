@@ -21,14 +21,31 @@ class Painter:
         return f"\033[{';'.join(COLORS[s] for s in styles)}m{text}\033[0m"
 
 
-def resolve(report: Dict, query: str, repo: str, cwd: str) -> Tuple[str, object]:
-    """Map what the user typed to ('file', report) | ('dir', [reports]) | ('missing', suggestions)."""
-    files = report["files"]
+def _candidates(query: str, repo: str, cwd: str) -> List[str]:
+    """Ways to read what the user typed as a repo-relative path, most likely first."""
     candidates = [query.replace("\\", "/").lstrip("./") if not os.path.isabs(query) else query]
     absolute = query if os.path.isabs(query) else os.path.join(cwd, query)
     rel = os.path.relpath(os.path.realpath(absolute), os.path.realpath(repo)).replace(os.sep, "/")
     if not rel.startswith(".."):
         candidates.insert(0, rel)
+    return candidates
+
+
+def _directory(files: Dict[str, Dict], candidates: List[str]) -> Optional[List[Dict]]:
+    """Live files under the first candidate that is a directory ("." or "" means all of them)."""
+    for cand in candidates:
+        prefix = cand.rstrip("/") + "/"
+        inside = [f for p, f in files.items() if p.startswith(prefix) and f["status"] == "live"]
+        if cand in (".", "") or inside:
+            inside = inside or [f for f in files.values() if f["status"] == "live"]
+            return sorted(inside, key=lambda f: (-f["score"], f["path"]))
+    return None
+
+
+def resolve(report: Dict, query: str, repo: str, cwd: str) -> Tuple[str, object]:
+    """Map what the user typed to ('file', report) | ('dir', [reports]) | ('missing', suggestions)."""
+    files = report["files"]
+    candidates = _candidates(query, repo, cwd)
     previous = {old: f["path"] for f in files.values() for old in f["previous"]}
     for cand in candidates:
         cand = cand.rstrip("/")
@@ -36,12 +53,9 @@ def resolve(report: Dict, query: str, repo: str, cwd: str) -> Tuple[str, object]
             return "file", files[cand]
         if cand in previous:
             return "file", files[previous[cand]]
-    for cand in candidates:
-        prefix = cand.rstrip("/") + "/"
-        inside = [f for p, f in files.items() if p.startswith(prefix) and f["status"] == "live"]
-        if cand in (".", "") or inside:
-            inside = inside or [f for f in files.values() if f["status"] == "live"]
-            return "dir", sorted(inside, key=lambda f: (-f["score"], f["path"]))
+    inside = _directory(files, candidates)
+    if inside is not None:
+        return "dir", inside
     tail = [f for p, f in files.items() if p.endswith("/" + candidates[-1])]
     if len(tail) == 1:
         return "file", tail[0]
