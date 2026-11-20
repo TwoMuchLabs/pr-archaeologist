@@ -144,9 +144,8 @@ def _score(fixes: int, reverts: int, security: int, hotfixes: int, commits: int,
     return int(round(100 * (1 - math.exp(-weight / 18.0))))
 
 
-def _link_docs(state: Dict, live: Dict[str, Dict]) -> Dict[str, List[str]]:
-    """doc path -> current file paths it refers to (directly, or via commits citing the ADR)."""
-    by_previous = {old: path for path, rec in state["files"].items() for old in rec["previous"]}
+def _path_resolver(state: Dict, live: Dict[str, Dict], by_previous: Dict[str, str]) -> Callable[[str], Optional[str]]:
+    """Turn a path-like token from a document into the current file it means, if exactly one."""
     by_base: Dict[str, List[str]] = {}
     for path in live:
         by_base.setdefault(path.rsplit("/", 1)[-1], []).append(path)
@@ -164,31 +163,45 @@ def _link_docs(state: Dict, live: Dict[str, Dict]) -> Dict[str, List[str]]:
         hits = by_base.get(token, [])
         return hits[0] if len(hits) == 1 else None
 
+    return resolve
+
+
+def _named_files(path: str, doc: Dict, resolve: Callable[[str], Optional[str]]) -> List[str]:
+    found: List[str] = []
+    for token in doc.get("paths", []):
+        hit = resolve(token)
+        if hit and hit != path and hit not in found:
+            found.append(hit)
+    # A README that names twenty files is an index, not an explanation of any of them.
+    return found if (doc["kind"] == "adr" or len(found) <= MAX_DOC_LINKS) else []
+
+
+def _link_cited_adrs(state: Dict, live: Dict[str, Dict], by_previous: Dict[str, str],
+                     adr_by_number: Dict[int, str], links: Dict[str, List[str]]) -> None:
+    """Commits that cite "ADR-0003" tie that ADR to the files they changed."""
+    for commit in state["commits"].values():
+        numbers = {int(n) for n in ADR_MENTION_RE.findall(commit["subject"] + "\n" + commit["body"])}
+        hits = [adr_by_number[n] for n in numbers if n in adr_by_number]
+        if not hits or len(commit["files"]) > 15:
+            continue
+        for doc_path in hits:
+            for entry in commit["files"]:
+                target = entry[0] if entry[0] in live else by_previous.get(entry[0])
+                if target in live and target != doc_path and target not in links[doc_path]:
+                    links[doc_path].append(target)
+
+
+def _link_docs(state: Dict, live: Dict[str, Dict]) -> Dict[str, List[str]]:
+    """doc path -> current file paths it refers to (directly, or via commits citing the ADR)."""
+    by_previous = {old: path for path, rec in state["files"].items() for old in rec["previous"]}
+    resolve = _path_resolver(state, live, by_previous)
     adr_by_number = {
         int(doc["number"]): path for path, doc in state["docs"].items()
         if doc["kind"] == "adr" and doc.get("number")
     }
-    links: Dict[str, List[str]] = {}
-    for path, doc in state["docs"].items():
-        found = []
-        for token in doc.get("paths", []):
-            hit = resolve(token)
-            if hit and hit != path and hit not in found:
-                found.append(hit)
-        # A README that names twenty files is an index, not an explanation of any of them.
-        links[path] = found if (doc["kind"] == "adr" or len(found) <= MAX_DOC_LINKS) else []
-    # Commits that cite "ADR-0003" tie that ADR to the files they changed.
+    links = {path: _named_files(path, doc, resolve) for path, doc in state["docs"].items()}
     if adr_by_number:
-        for commit in state["commits"].values():
-            numbers = {int(n) for n in ADR_MENTION_RE.findall(commit["subject"] + "\n" + commit["body"])}
-            hits = [adr_by_number[n] for n in numbers if n in adr_by_number]
-            if not hits or len(commit["files"]) > 15:
-                continue
-            for doc_path in hits:
-                for entry in commit["files"]:
-                    target = entry[0] if entry[0] in live else by_previous.get(entry[0])
-                    if target in live and target != doc_path and target not in links[doc_path]:
-                        links[doc_path].append(target)
+        _link_cited_adrs(state, live, by_previous, adr_by_number, links)
     return links
 
 
