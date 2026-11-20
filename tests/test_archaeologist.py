@@ -93,6 +93,11 @@ class ParserTest(unittest.TestCase):
         )
         got = history.parse_record(record)
         self.assertEqual(got["sha"], "abc")
+        self.assertEqual(got["date"], "2021-01-01T00:00:00+00:00")
+        # git prints UTC as "Z" in newer versions, and authors live in different time zones.
+        self.assertEqual(history.utc_iso("2021-01-01T00:00:00Z"), "2021-01-01T00:00:00+00:00")
+        self.assertEqual(history.utc_iso("2021-01-01T05:30:00+05:30"), "2021-01-01T00:00:00+00:00")
+        self.assertLess(history.utc_iso("2021-01-01T09:00:00+09:00"), history.utc_iso("2021-01-01T01:00:00-05:00"))
         self.assertEqual(got["parents"], ["def"])
         self.assertIn(["new.py", 1, 0, "R", "old name.py"], got["files"])
         self.assertIn(["d.txt", 1, 0, "A", None], got["files"])

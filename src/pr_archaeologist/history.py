@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, Iterator, List, Optional
 
@@ -74,6 +75,15 @@ def _stream_records(repo: str, args: List[str]) -> Iterator[str]:
             yield buf.decode("utf-8", "replace")
 
 
+def utc_iso(stamp: str) -> str:
+    """Normalise git's ISO date to UTC so that dates from different time zones sort correctly."""
+    try:
+        when = datetime.fromisoformat(stamp.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return stamp.strip()
+    return when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
 def parse_record(record: str) -> Optional[Dict]:
     """Parse one `--raw --numstat -z` log record into a commit dict (without derived fields)."""
     parts = record.split(US)
@@ -116,7 +126,7 @@ def parse_record(record: str) -> Optional[Dict]:
         "parents": parents.split(),
         "author": author,
         "email": email,
-        "date": date,
+        "date": utc_iso(date),
         "subject": subject.strip(),
         "body": body.strip(),
         "files": [[p, f["a"], f["d"], f["s"], f["old"]] for p, f in files.items()],

@@ -20,7 +20,7 @@ import json
 import os
 from typing import Dict
 
-SCHEMA = 1
+SCHEMA = 2  # 2: commit dates are stored in UTC
 CACHE_DIR = ".pr-archaeologist"
 CACHE_FILE = "cache.json.gz"
 
@@ -56,7 +56,12 @@ def load(repo: str) -> Dict:
     except (OSError, ValueError, EOFError):
         return empty_state()  # corrupt cache: rebuild rather than fail the nightly run
     if state.get("schema") != SCHEMA:
-        return empty_state()
+        # History is rebuilt, but what was read from GitHub is keyed by number and still good.
+        fresh = empty_state()
+        for key in ("prs", "issues", "config"):
+            if isinstance(state.get(key), dict):
+                fresh[key] = state[key]
+        return fresh
     return state
 
 
